@@ -226,10 +226,10 @@ void App::onTimer(UINT_PTR id) {
     switch (id) {
         case T_DEATH:
             deathPending_ = false;
+            logf("espera da morte acabou: dead_=%d ctx=%d", (int)dead_, (int)ctx_);
             if (!dead_) return;
-            duckAudio();
-            if (ctx_ != Ctx::None || cfg_.deathDisplay == Display::Off) return;
-            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) return;
+            if (ctx_ != Ctx::None || cfg_.deathDisplay == Display::Off) { duckAudio(); return; }
+            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) { duckAudio(); return; }
             if (ensureGfx()) {
                 ensureSession();
                 const Question* q = session_->nextQuestion(Slot::Death, nowSec());
@@ -242,6 +242,8 @@ void App::onTimer(UINT_PTR id) {
             } else {
                 logf("morte: falha ao iniciar GPU");
             }
+            duckAudio();   // por último: um problema no áudio nunca pode impedir a pergunta
+            logf("volume ajustado");
             break;
         case T_WATCH: watchTick(); break;
         case T_PEEK: endPeek(); break;
@@ -279,6 +281,7 @@ void App::onTray(LPARAM lp) {
 
 void App::onDie() {
     if (ctx_ == Ctx::Report) dismissReport();
+    logf("onDie: dead_=%d ctx=%d", (int)dead_, (int)ctx_);
     if (dead_) return;
     ensureSession();
     endBuy(false);
