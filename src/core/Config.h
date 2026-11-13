@@ -7,7 +7,8 @@ namespace sq {
 enum class Display { Full, Corner, Off };
 
 struct KeyNames {
-    std::string die = "F1", revive = "F2", roundStart = "F3", matchEnd = "F4", peek = "F5", notNow = "F6";
+    // die/revive/roundStart/matchEnd são atalhos de simulação: vazios = não registrados (a detecção é automática)
+    std::string die, revive, roundStart, matchEnd, peek = "F5", notNow = "F6";
 };
 
 struct Config {

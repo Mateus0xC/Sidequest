@@ -21,7 +21,7 @@ janela (por título; a classe pode ficar vazia).
 
 | Tecla | Ação |
 | --- | --- |
-| F1 / F2 / F3 / F4 | morri / revivi / round começou / fim de partida (simulação) |
+| (opcional) `morri`, `revivi`, `round_comecou`, `fim_de_partida` | simulação sem o jogo: ficam desligadas se não estiverem no config |
 | 1–6, Enter | marcar / confirmar (hotkeys globais, só registradas com a tela aberta) |
 | F5 | espiar o jogo por alguns segundos |
 | F6 | agora não (fecha sem penalidade) |

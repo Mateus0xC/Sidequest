@@ -22,5 +22,6 @@
 
   "estudo": { "voltar_apos_cartoes": 3, "limite_erros_conteudo": 3, "caixas_dias": [0, 1, 3, 7, 14, 30] },
 
-  "teclas": { "morri": "F1", "revivi": "F2", "round_comecou": "F3", "fim_de_partida": "F4", "espiar": "F5", "agora_nao": "F6" }
+  // morri/revivi/round_comecou/fim_de_partida são só para simular sem o jogo (opcionais; ausentes = desligados)
+  "teclas": { "espiar": "F5", "agora_nao": "F6" }
 }

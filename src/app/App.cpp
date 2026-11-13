@@ -69,6 +69,7 @@ bool App::init() {
         {cfg_.keys.die, A_DIE}, {cfg_.keys.revive, A_REVIVE}, {cfg_.keys.roundStart, A_ROUND},
         {cfg_.keys.matchEnd, A_END}, {cfg_.keys.peek, A_PEEK}, {cfg_.keys.notNow, A_NOTNOW}};
     for (auto& g : globals) {
+        if (g.key.empty()) continue;   // atalho desligado
         HotkeySpec s;
         if (parseHotkey(g.key, s)) hk_->add(G_GLOBAL, g.act, s);
         else warnings_.push_back("tecla inválida: " + g.key);
@@ -112,8 +113,8 @@ bool App::init() {
     Shell_NotifyIconW(NIM_ADD, &nid);
 
     std::wstring msg = std::to_wstring(bank_.all().size()) + L" questões em " + std::to_wstring(bank_.contentCount()) +
-                       L" conteúdos. " + widen(cfg_.keys.die) + L" morri · " + widen(cfg_.keys.revive) + L" revivi · " +
-                       widen(cfg_.keys.roundStart) + L" round · " + widen(cfg_.keys.matchEnd) + L" fim.";
+                       L" conteúdos. " + (cfg_.detectEnabled ? L"Morte detectada automaticamente. " : L"") +
+                       widen(cfg_.keys.peek) + L" espiar · " + widen(cfg_.keys.notNow) + L" agora não.";
     if (bank_.all().empty()) msg =L"Nenhuma questão carregada em " + cfg_.questionsDir.wstring();
     for (auto& f : hk_->failures) warnings_.push_back(f);
     if (!warnings_.empty()) msg += L"\nAviso: " + widen(warnings_.front()) + (warnings_.size() > 1 ? L" (+" + std::to_wstring(warnings_.size() - 1) + L")" : L"");
