@@ -393,10 +393,6 @@ void App::onChoiceKey(int n) {
             death_.sel = {n};
         }
         deathWin_->update(questionView(death_, false, false, false, false));
-    } else if (ctx_ == Ctx::Reveal && death_.q && death_.q->type == QType::Gap && !death_.committed && n < 2) {
-        death_.correct = (n == 0);                              // "eu acertei" / "eu errei"
-        commitDeath();
-        deathWin_->update(questionView(death_, false, true, false, false));
     }
 }
 
@@ -426,6 +422,7 @@ void App::beginTyping() {
 void App::submitGap() {
     death_.correct = answerMatches(narrow(death_.typed), death_.q->accepted);
     ctx_ = Ctx::Reveal;
+    commitDeath();                    // o veredito é automático e definitivo
     deathWin_->setInteractive(false);
     focusTarget();                    // devolve o foco ao jogo
     hk_->setGroup(G_ANSWER, true);
@@ -667,10 +664,7 @@ View App::questionView(const Active& a, bool compact, bool reveal, bool typing, 
             v.expected = exp;
         }
         v.explanation = widen(q.explanation);
-        if (!buy) {
-            if (q.type == QType::Gap && !a.committed) v.hint = L"1 = eu acertei  ·  2 = eu errei  ·  Enter: voltar ao jogo";
-            else v.hint = L"Enter: voltar ao jogo";
-        }
+        if (!buy) v.hint = L"Enter: voltar ao jogo";
     } else if (typing) {
         v.hint = L"Enter confirma  ·  Backspace apaga  ·  " + keyHint();
     } else if (q.type == QType::Gap) {
