@@ -455,7 +455,7 @@ void App::showReport() {
     v.tag = L"RELATÓRIO DA SESSÃO";
     v.title = L"Fim de partida";
     for (auto& l : session_->reportLines(nowSec())) v.lines.push_back(widen(l));
-    v.hint = L"Enter, Esc ou clique para fechar";
+    v.hint = L"Enter ou Esc para fechar";
     ctx_ = Ctx::Report;
     deathWin_->show(v, monitorFor(target()), nullptr, 0);
     hk_->setGroup(G_ANSWER, true);   // Enter fecha o relatório mesmo se a janela não ganhar foco
@@ -601,15 +601,12 @@ bool App::ensureGfx() {
         deathWin_ = std::make_unique<OverlayWindow>(gfx_, OverlayMode::Full, "", 0);
         if (!deathWin_->create(hi_)) { deathWin_.reset(); return false; }
         deathWin_->onChar = [this](wchar_t c) { onOverlayChar(c); };
-        deathWin_->onClick = [this] { if (ctx_ == Ctx::Report) dismissReport(); };
         deathWin_->onCloseAttempt = [this] { closeAttempt(); };
-        deathWin_->onItem = [this](int k, int i) { onItemClick(k, i); };
     }
     if (!buyWin_) {
         buyWin_ = std::make_unique<OverlayWindow>(gfx_, OverlayMode::Corner, cfg_.buyCorner, 24);
         if (!buyWin_->create(hi_)) { buyWin_.reset(); return false; }
         buyWin_->onCloseAttempt = [this] { closeAttempt(); };
-        buyWin_->onItem = [this](int k, int i) { onItemClick(k, i); };
     }
     return true;
 }
