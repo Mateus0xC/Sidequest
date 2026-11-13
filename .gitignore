@@ -3,3 +3,4 @@ config.json
 estado.json
 *.tmp
 .vs/
+sidequest.log

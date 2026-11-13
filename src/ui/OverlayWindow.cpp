@@ -159,14 +159,21 @@ void OverlayWindow::show(const View& v, HMONITOR mon, const PreviewParams* pv, d
     GetMonitorInfoW(mon, &mi);
     mon_ = mi.rcMonitor;
     scale_ = std::clamp((float)(mon_.bottom - mon_.top) / 1080.f, 0.6f, 2.5f);
-    hasPv_ = pv && pv->src && mode_ == OverlayMode::Full;
+    const bool backdrop = pv && pv->src && pv->background && mode_ == OverlayMode::Full;
+    hasPv_ = pv && pv->src && mode_ == OverlayMode::Full && !pv->background;
     if (hasPv_) pv_ = *pv;
     barSeconds_ = barSeconds;
+    setBackdropBlur(backdrop);
 
     root_->SetEffect(nullptr);
     if (mode_ == OverlayMode::Full) {
-        if (!bgSurf_) bgSurf_ = solidSurface(D2D1::ColorF(0x0B0D12, 1.f));
-        bgV_->SetContent(bgSurf_.Get());
+        // jogo ao vivo atrás: camada escura translúcida (alfa pré-multiplicado) sobre o blur do DWM
+        if (backdrop) {
+            if (!bgDim_) bgDim_ = solidSurface(D2D1::ColorF(0.043f * 0.74f, 0.051f * 0.74f, 0.071f * 0.74f, 0.74f));
+        } else if (!bgSolid_) {
+            bgSolid_ = solidSurface(D2D1::ColorF(0x0B0D12, 1.f));
+        }
+        bgV_->SetContent(backdrop ? bgDim_.Get() : bgSolid_.Get());
         bgScale_->SetScaleX((mon_.right - mon_.left) / 4.f);
         bgScale_->SetScaleY((mon_.bottom - mon_.top) / 4.f);
         bgV_->SetTransform(bgScale_.Get());
@@ -239,7 +246,23 @@ void OverlayWindow::showInstant() {
     visible_ = true;
 }
 
+// Blur-behind do DWM (borra o que está atrás da janela, ao vivo). API não documentada do user32,
+// usada por vários apps; se faltar, só fica o escurecimento sem blur.
+void OverlayWindow::setBackdropBlur(bool on) {
+    if (blurOn_ == on || !hwnd_) return;
+    struct Accent { int state, flags; unsigned color; int anim; };
+    struct Data { int attr; void* data; SIZE_T size; };
+    using Fn = BOOL(WINAPI*)(HWND, Data*);
+    static Fn fn = (Fn)GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute");
+    if (!fn) return;
+    Accent a{on ? 3 /*ACCENT_ENABLE_BLURBEHIND*/ : 0, 0, 0, 0};
+    Data d{19 /*WCA_ACCENT_POLICY*/, &a, sizeof a};
+    fn(hwnd_, &d);
+    blurOn_ = on;
+}
+
 void OverlayWindow::releaseContent() {
+    setBackdropBlur(false);
     preview_.detach();
     cardV_->SetContent(nullptr);
     barV_->SetContent(nullptr);

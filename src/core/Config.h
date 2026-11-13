@@ -23,6 +23,7 @@ struct Config {
     int previewWidthPct = 22;                 // % da largura do monitor
     std::string previewCorner = "bottom-right";
     int previewMargin = 24;
+    std::string previewMode = "fundo";        // "fundo" (jogo borrado atrás da pergunta) | "canto" (miniatura)
 
     Display deathDisplay = Display::Full;
     Display buyDisplay = Display::Corner;

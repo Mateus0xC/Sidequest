@@ -4,6 +4,8 @@
 #include "../platform/WindowFinder.h"
 #include <shellapi.h>
 #include <algorithm>
+#include <cstdarg>
+#include <cstdio>
 #include <ctime>
 
 namespace fs = std::filesystem;
@@ -19,6 +21,23 @@ constexpr wchar_t kCtlClass[] = L"SidequestControl";
 AudioDucker* g_ducker = nullptr;
 
 int64_t nowSec() { return (int64_t)time(nullptr); }
+
+fs::path g_logPath;
+void logf(const char* fmt, ...) {
+    if (g_logPath.empty()) return;
+    FILE* f = nullptr;
+    if (_wfopen_s(&f, g_logPath.c_str(), L"a") || !f) return;
+    time_t t = time(nullptr);
+    tm lt;
+    localtime_s(&lt, &t);
+    fprintf(f, "%02d:%02d:%02d ", lt.tm_hour, lt.tm_min, lt.tm_sec);
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
 
 LONG WINAPI crashFilter(EXCEPTION_POINTERS*) {
     if (g_ducker) g_ducker->restore();   // devolve o volume do Valorant mesmo se o app cair
@@ -62,6 +81,9 @@ bool App::init() {
     parseHotkey("Enter", enter);
     hk_->add(G_ANSWER, A_CONFIRM, enter);
     hk_->setGroup(G_GLOBAL, true);
+    g_logPath = configPath_.parent_path() / "sidequest.log";
+    logf("--- iniciado; teclas globais registradas, falhas=%zu", hk_->failures.size());
+    for (auto& f : hk_->failures) logf("falha de tecla: %s", f.c_str());
 
     bank_.load(cfg_.questionsDir);
     for (auto& w : bank_.warnings) warnings_.push_back(w);
@@ -156,6 +178,7 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
 }
 
 void App::onAction(int a) {
+    logf("hotkey acao=%d dead=%d ctx=%d", a, (int)dead_, (int)ctx_);
     if (a == A_DIE) onDie();
     else if (a == A_REVIVE) onRevive();
     else if (a == A_ROUND) onRound();
@@ -175,7 +198,15 @@ void App::onTimer(UINT_PTR id) {
             if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) return;
             if (ensureGfx()) {
                 ensureSession();
-                if (const Question* q = session_->nextQuestion(Slot::Death, nowSec())) showDeathQuestion(q, true);
+                const Question* q = session_->nextQuestion(Slot::Death, nowSec());
+                HWND t = target();
+                logf("morte: pergunta=%s alvo=%p", q ? q->key().c_str() : "(nenhuma)", (void*)t);
+                if (q) {
+                    showDeathQuestion(q, true);
+                    logf("overlay visivel=%d", (int)deathWin_->visible());
+                }
+            } else {
+                logf("morte: falha ao iniciar GPU");
             }
             break;
         case T_PEEK: endPeek(); break;
@@ -270,6 +301,7 @@ void App::showDeathQuestion(const Question* q, bool fresh) {
         pv.corner = cfg_.previewCorner;
         pv.widthPct = cfg_.previewWidthPct;
         pv.margin = cfg_.previewMargin;
+        pv.background = cfg_.previewMode != "canto";
         deathWin_->show(v, monitorFor(t), &pv, 0);
     } else {
         deathWin_->update(v);

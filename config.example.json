@@ -6,7 +6,8 @@
   // Janela cuja miniatura aparece no canto. Para testar, use "Bloco de Notas" e deixe a classe vazia.
   "janela_alvo": { "titulo": "VALORANT", "classe": "VALORANTUnrealWindow" },
 
-  "previa": { "ativa": true, "largura_pct": 22, "canto": "bottom-right", "margem": 24 },
+  // modo: "fundo" = jogo ao vivo borrado e escuro atrás da pergunta; "canto" = miniatura no canto
+  "previa": { "ativa": true, "modo": "fundo", "largura_pct": 22, "canto": "bottom-right", "margem": 24 },
 
   // tela_cheia | canto | desligado   (segundo_monitor chega na Etapa 3)
   "exibicao": { "morte": "tela_cheia", "compra": "canto", "canto_compra": "top-right" },

@@ -58,6 +58,7 @@ Config Config::load(const fs::path& file, std::vector<std::string>& w) {
             c.previewWidthPct = p.value("largura_pct", c.previewWidthPct);
             c.previewCorner = p.value("canto", c.previewCorner);
             c.previewMargin = p.value("margem", c.previewMargin);
+            c.previewMode = p.value("modo", c.previewMode);
         }
         if (j.contains("exibicao")) {
             auto& e = j["exibicao"];

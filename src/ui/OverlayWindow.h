@@ -14,6 +14,7 @@ struct PreviewParams {
     std::string corner = "bottom-right";
     int widthPct = 22;
     int margin = 24;
+    bool background = false;   // true: jogo ao vivo borrado/escurecido atrás do cartão (sem miniatura)
 };
 
 // Janela sempre no topo, sem borda, sem ativação. Todo o desenho do cartão acontece uma vez por
@@ -46,6 +47,7 @@ private:
     ComPtr<IDCompositionAnimation> anim(float from, float to, double dur, bool easeOut);
     ComPtr<IDCompositionSurface> solidSurface(D2D1_COLOR_F c);
     void releaseContent();
+    void setBackdropBlur(bool on);
 
     Gfx& g_;
     CardRenderer renderer_;
@@ -67,6 +69,7 @@ private:
     ComPtr<IDCompositionVisual2> root_, bgV_, cardV_, barV_;
     ComPtr<IDCompositionEffectGroup> rootFx_, bgFx_, cardFx_;
     ComPtr<IDCompositionScaleTransform> cardScale_, bgScale_, barScale_;
-    ComPtr<IDCompositionSurface> cardSurf_, bgSurf_, barSurf_;
+    ComPtr<IDCompositionSurface> cardSurf_, bgSolid_, bgDim_, barSurf_;
+    bool blurOn_ = false;
 };
 }  // namespace sq
