@@ -165,9 +165,9 @@ TEST_CASE("sessão: erros repetidos no conteúdo marcam 'estudar fora'") {
     CHECK(s.nextQuestion(Slot::Death, 1000) == nullptr);  // sem mais perguntas desse conteúdo
 }
 
-TEST_CASE("detector: linha branca presente = morto, com confirmação") {
+TEST_CASE("detector: HUD presente = vivo; sumiu = morto, com confirmação") {
     DeathDetector d;
-    Features alive{0.0f}, dead{1.0f};
+    Features alive{1.0f}, dead{0.0f};
     d.setState(LifeState::Alive);
 
     CHECK_FALSE(d.observe(dead).has_value());       // uma leitura isolada não basta
@@ -188,14 +188,30 @@ TEST_CASE("detector: linha branca presente = morto, com confirmação") {
     CHECK(*ev == LifeState::Alive);
 }
 
-TEST_CASE("detector: linha parcial abaixo do limiar conta como vivo") {
+TEST_CASE("detector: sem HUD desde o começo (lobby/menu) não é morte") {
+    DeathDetector d;                                // estado desconhecido
+    for (int i = 0; i < 10; ++i) CHECK_FALSE(d.observe({0.0f}).has_value());
+    // o HUD aparece (entrou na partida) e depois some (morreu): aí sim é morte
+    CHECK_FALSE(d.observe({1.0f}).has_value());
+    CHECK_FALSE(d.observe({1.0f}).has_value());
+    auto ev = d.observe({1.0f});
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Alive);
+    CHECK_FALSE(d.observe({0.0f}).has_value());
+    CHECK_FALSE(d.observe({0.0f}).has_value());
+    ev = d.observe({0.0f});
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
+}
+
+TEST_CASE("detector: linha parcial abaixo do limiar conta como HUD ausente") {
     DeathDetector d;                                // limiar padrão 0,8
-    d.setState(LifeState::Dead);
+    d.setState(LifeState::Alive);
     CHECK_FALSE(d.observe({0.5f}).has_value());
     CHECK_FALSE(d.observe({0.5f}).has_value());
     auto ev = d.observe({0.5f});
     REQUIRE(ev.has_value());
-    CHECK(*ev == LifeState::Alive);
+    CHECK(*ev == LifeState::Dead);
 }
 
 TEST_CASE("banco real do usuário (se existir)") {

@@ -4,7 +4,7 @@
 namespace sq {
 
 std::optional<LifeState> DeathDetector::observe(const Features& f) {
-    votes_.push_back(f.line >= threshold_ ? LifeState::Dead : LifeState::Alive);
+    votes_.push_back(f.hud >= threshold_ ? LifeState::Alive : LifeState::Dead);
     if (votes_.size() > 5) votes_.pop_front();
     if (votes_.size() < 3) return std::nullopt;
     int dead = (int)std::count(votes_.begin(), votes_.end(), LifeState::Dead);
@@ -13,6 +13,10 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
     // maioria dos últimos 5 + as duas leituras mais recentes iguais
     if (votes_[votes_.size() - 1] != maj || votes_[votes_.size() - 2] != maj) return std::nullopt;
     if (maj == confirmed_) return std::nullopt;
+    if (maj == LifeState::Dead && confirmed_ != LifeState::Alive) {
+        confirmed_ = LifeState::Dead;   // sem HUD desde o começo (lobby/menu): não é morte
+        return std::nullopt;
+    }
     confirmed_ = maj;
     return maj;
 }

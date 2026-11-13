@@ -21,9 +21,12 @@ namespace {
 struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")) IDirect3DDxgiInterfaceAccess : ::IUnknown {
     virtual HRESULT __stdcall GetInterface(REFIID iid, void** object) = 0;
 };
-// Linha branca do painel "Combat Report" (só existe com o jogador morto). Medida em um quadro 1920x1079:
-// y = 554..556, x = 1510..1899. Em frações do quadro, com margem nas pontas: x 0.7917..0.9844, y 0.5134.
-constexpr float kX0 = 0.7917f, kX1 = 0.9844f, kYc = 0.5134f;
+// Ponta da linha do HUD de baixo, sob o contador de munição (só existe com o jogador vivo). Medida num
+// quadro 1920x1079: a linha tem 1 px em y = 1054 e vai de x = 1273 a 1382 (semitransparente, ~(170,170,178)
+// sobre cenas escuras). Só os últimos ~13 px da ponta: x 1370..1382. Em frações do quadro: x 0.7135..0.7203.
+constexpr float kX0 = 0.7135f, kX1 = 0.7203f, kYc = 0.9768f;
+constexpr int kContrast = 20;   // a linha tem de ser mais clara que 2 px acima e abaixo
+constexpr int kMinLum = 110;
 }  // namespace
 
 namespace sq {
@@ -56,10 +59,11 @@ struct CaptureSampler::Impl {
         D3D11_TEXTURE2D_DESC d{};
         tex->GetDesc(&d);
         UINT yc = (UINT)(d.Height * kYc + 0.5f);
-        UINT x0 = (UINT)(d.Width * kX0), x1 = (UINT)(d.Width * kX1), y0 = yc > 0 ? yc - 1 : 0, y1 = yc + 2;   // 3 linhas
-        if (y1 > d.Height) y1 = d.Height;
+        // 7 linhas (yc-3..yc+3): 3 candidatas (yc-1..yc+1), cada uma comparada com os vizinhos a ±2 px
+        if (yc < 3 || yc + 4 > d.Height) return;
+        UINT x0 = (UINT)(d.Width * kX0), x1 = (UINT)(d.Width * kX1), y0 = yc - 3, y1 = yc + 4;
         UINT w = x1 - x0, h = y1 - y0;
-        if (!w || !h) return;
+        if (!w || h != 7) return;
         if (!stg || stgW != w || stgH != h) {
             D3D11_TEXTURE2D_DESC sd = d;
             sd.Width = w; sd.Height = h;
@@ -72,20 +76,26 @@ struct CaptureSampler::Impl {
         ctx->CopySubresourceRegion(stg.get(), 0, 0, 0, 0, tex.get(), 0, &box);   // só a faixa, não o quadro todo
         D3D11_MAPPED_SUBRESOURCE mp{};
         if (FAILED(ctx->Map(stg.get(), 0, D3D11_MAP_READ, 0, &mp))) return;
-        // fração de pixels "brancos" (a linha mede ~(236,232,225)) em cada uma das 3 linhas; vale a melhor
+        // fração do trecho onde a linha do HUD aparece (mais clara que os vizinhos); vale a melhor candidata
+        auto lum = [&](UINT row, UINT x) {
+            const BYTE* p = (const BYTE*)mp.pData + (size_t)row * mp.RowPitch + (size_t)x * 4;
+            return (p[0] + p[1] + p[2]) / 3;
+        };
         float best = 0;
-        for (UINT y = 0; y < h; ++y) {
-            const BYTE* row = (const BYTE*)mp.pData + (size_t)y * mp.RowPitch;
-            UINT white = 0;
+        for (UINT c = 2; c <= 4; ++c) {   // linhas locais 2..4 = yc-1..yc+1
+            UINT hit = 0;
             for (UINT x = 0; x < w; ++x) {
-                int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
-                if (r > 215 && g > 215 && b > 205 && std::abs(r - g) < 20) ++white;
+                const BYTE* p = (const BYTE*)mp.pData + (size_t)c * mp.RowPitch + (size_t)x * 4;
+                int mx = std::max({(int)p[0], (int)p[1], (int)p[2]}), mn = std::min({(int)p[0], (int)p[1], (int)p[2]});
+                bool whitish = mx - mn < 40;   // branco/cinza-claro, sem cor
+                int l = lum(c, x);
+                if (whitish && l > kMinLum && l - std::max(lum(c - 2, x), lum(c + 2, x)) > kContrast) ++hit;
             }
-            best = std::max(best, (float)white / w);
+            best = std::max(best, (float)hit / w);
         }
         ctx->Unmap(stg.get(), 0);
         frame.Close();
-        last = {best};
+        last = Features{best};
         ++count;
         if (notify) PostMessageW(notify, msg, 0, 0);
     }
