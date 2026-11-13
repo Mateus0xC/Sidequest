@@ -198,7 +198,7 @@ void App::watchTick() {
 void App::onSample() {
     Features f = cap_.last();
     unsigned long long n = cap_.samples();
-    if (n % 40 == 1) logf("amostra hud=%.3f estado=%d", f.hud, (int)det_.state());
+    if (n % 40 == 1) logf("amostra hud=%.3f brilho=%.0f%s estado=%d", f.hud, f.bright * 255.f, f.bright < 75.f / 255.f ? " (menu)" : "", (int)det_.state());
     auto ev = det_.observe(f);
     if (!ev) return;
     logf("detector: %s (hud=%.3f dead_=%d)", *ev == LifeState::Dead ? "MORTO" : "VIVO", f.hud, (int)dead_);

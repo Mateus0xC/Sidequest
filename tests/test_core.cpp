@@ -204,6 +204,31 @@ TEST_CASE("detector: sem HUD desde o começo (lobby/menu) não é morte") {
     CHECK(*ev == LifeState::Dead);
 }
 
+TEST_CASE("detector: menu aberto (tela escura) não conta como morte") {
+    DeathDetector d;
+    d.setState(LifeState::Alive);
+    Features menu{0.0f, 0.15f};                     // HUD "sumiu" porque o menu escureceu a tela
+    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(menu).has_value());
+    CHECK(d.state() == LifeState::Alive);
+    // menu de compra pouco escurecido: a linha branca do cartão do jogador já o denuncia
+    Features buy{0.0f, 0.5f, 1.0f};
+    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(buy).has_value());
+    CHECK(d.state() == LifeState::Alive);
+    // fechou o menu: continua vivo; depois a morte real (HUD some, tela normal) é detectada
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe({1.0f, 0.5f}).has_value());
+    CHECK_FALSE(d.observe({0.0f, 0.45f}).has_value());
+    CHECK_FALSE(d.observe({0.0f, 0.45f}).has_value());
+    auto ev = d.observe({0.0f, 0.45f});
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
+    // um menu no meio das leituras de morte zera os votos parciais
+    d.setState(LifeState::Alive);
+    CHECK_FALSE(d.observe({0.0f, 0.45f}).has_value());
+    CHECK_FALSE(d.observe({0.0f, 0.45f}).has_value());
+    CHECK_FALSE(d.observe(menu).has_value());
+    CHECK_FALSE(d.observe({0.0f, 0.45f}).has_value());
+}
+
 TEST_CASE("detector: linha parcial abaixo do limiar conta como HUD ausente") {
     DeathDetector d;                                // limiar padrão 0,8
     d.setState(LifeState::Alive);

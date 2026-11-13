@@ -27,6 +27,9 @@ struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")) IDirect3DDxgiInt
 constexpr float kX0 = 0.7135f, kX1 = 0.7203f, kYc = 0.9768f;
 constexpr int kContrast = 20;   // a linha tem de ser mais clara que 2 px acima e abaixo
 constexpr int kMinLum = 110;
+// Linha branca do cartão do jogador no menu de compra: 1 px em y = 120, x = 30..382 (1920x1079).
+// Em frações do quadro, com margem: x 0.0208..0.1927, y 0.1112 (3 linhas candidatas).
+constexpr float kCardX0 = 0.0208f, kCardX1 = 0.1927f, kCardY = 0.1112f;
 }  // namespace
 
 namespace sq {
@@ -34,8 +37,8 @@ namespace sq {
 struct CaptureSampler::Impl {
     winrt::com_ptr<ID3D11Device> dev;
     winrt::com_ptr<ID3D11DeviceContext> ctx;
-    winrt::com_ptr<ID3D11Texture2D> stg;
-    UINT stgW = 0, stgH = 0;
+    winrt::com_ptr<ID3D11Texture2D> stg, stg2, stg3;
+    UINT stgW = 0, stgH = 0, stg2W = 0, stg3W = 0;
     IDirect3DDevice d3dDev{nullptr};
     GraphicsCaptureItem item{nullptr};
     Direct3D11CaptureFramePool pool{nullptr};
@@ -94,8 +97,72 @@ struct CaptureSampler::Impl {
             best = std::max(best, (float)hit / w);
         }
         ctx->Unmap(stg.get(), 0);
+
+        // brilho médio da tela (5 linhas inteiras, 1 pixel a cada 6): menus escurecem o jogo todo
+        const UINT kRows = 5;
+        if (!stg2 || stg2W != d.Width) {
+            D3D11_TEXTURE2D_DESC sd = d;
+            sd.Height = kRows;
+            sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            stg2 = nullptr;
+            if (FAILED(dev->CreateTexture2D(&sd, nullptr, stg2.put()))) return;
+            stg2W = d.Width;
+        }
+        for (UINT i = 0; i < kRows; ++i) {
+            UINT ry = (UINT)(d.Height * (0.15f + 0.175f * i));
+            D3D11_BOX rb{0, ry, 0, d.Width, ry + 1, 1};
+            ctx->CopySubresourceRegion(stg2.get(), 0, 0, i, 0, tex.get(), 0, &rb);
+        }
+        float bright = 1.f;
+        D3D11_MAPPED_SUBRESOURCE m2{};
+        if (SUCCEEDED(ctx->Map(stg2.get(), 0, D3D11_MAP_READ, 0, &m2))) {
+            unsigned long long sum = 0, cnt = 0;
+            for (UINT i = 0; i < kRows; ++i) {
+                const BYTE* row = (const BYTE*)m2.pData + (size_t)i * m2.RowPitch;
+                for (UINT x = 0; x < d.Width; x += 6) {
+                    sum += (row[x * 4] + row[x * 4 + 1] + row[x * 4 + 2]) / 3;
+                    ++cnt;
+                }
+            }
+            ctx->Unmap(stg2.get(), 0);
+            if (cnt) bright = (float)sum / cnt / 255.f;
+        }
+
+        // linha branca do cartão do jogador (menu de compra): 3 linhas candidatas, vale a melhor fração
+        float card = 0;
+        {
+            UINT cy = (UINT)(d.Height * kCardY + 0.5f), cx0 = (UINT)(d.Width * kCardX0), cx1 = (UINT)(d.Width * kCardX1);
+            UINT cw = cx1 - cx0;
+            if (cy >= 1 && cy + 2 <= d.Height && cw) {
+                if (!stg3 || stg3W != cw) {
+                    D3D11_TEXTURE2D_DESC sd = d;
+                    sd.Width = cw; sd.Height = 3;
+                    sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+                    stg3 = nullptr;
+                    if (SUCCEEDED(dev->CreateTexture2D(&sd, nullptr, stg3.put()))) stg3W = cw;
+                }
+                if (stg3) {
+                    D3D11_BOX cb{cx0, cy - 1, 0, cx1, cy + 2, 1};
+                    ctx->CopySubresourceRegion(stg3.get(), 0, 0, 0, 0, tex.get(), 0, &cb);
+                    D3D11_MAPPED_SUBRESOURCE m3{};
+                    if (SUCCEEDED(ctx->Map(stg3.get(), 0, D3D11_MAP_READ, 0, &m3))) {
+                        for (UINT i = 0; i < 3; ++i) {
+                            const BYTE* row = (const BYTE*)m3.pData + (size_t)i * m3.RowPitch;
+                            UINT hit = 0;
+                            for (UINT x = 0; x < cw; ++x) {
+                                int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
+                                int mx = std::max({r, g, b}), mn = std::min({r, g, b});
+                                if ((r + g + b) / 3 > 150 && mx - mn < 40) ++hit;
+                            }
+                            card = std::max(card, (float)hit / cw);
+                        }
+                        ctx->Unmap(stg3.get(), 0);
+                    }
+                }
+            }
+        }
         frame.Close();
-        last = Features{best};
+        last = Features{best, bright, card};
         ++count;
         if (notify) PostMessageW(notify, msg, 0, 0);
     }
@@ -155,7 +222,7 @@ void CaptureSampler::stop() {
     } catch (...) {}
     std::lock_guard<std::mutex> lock(s.m);
     s.session = nullptr; s.pool = nullptr; s.item = nullptr; s.d3dDev = nullptr;
-    s.stg = nullptr; s.ctx = nullptr; s.dev = nullptr;
-    s.stgW = s.stgH = 0;
+    s.stg = nullptr; s.stg2 = nullptr; s.stg3 = nullptr; s.ctx = nullptr; s.dev = nullptr;
+    s.stgW = s.stgH = s.stg2W = s.stg3W = 0;
 }
 }  // namespace sq

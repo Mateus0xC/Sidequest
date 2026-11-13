@@ -4,6 +4,10 @@
 namespace sq {
 
 std::optional<LifeState> DeathDetector::observe(const Features& f) {
+    if (f.bright < menuBright_ || f.card >= 0.85f) {   // algum menu aberto: não conclui nada e esquece os votos parciais
+        votes_.clear();
+        return std::nullopt;
+    }
     votes_.push_back(f.hud >= threshold_ ? LifeState::Alive : LifeState::Dead);
     if (votes_.size() > 5) votes_.pop_front();
     if (votes_.size() < 3) return std::nullopt;
