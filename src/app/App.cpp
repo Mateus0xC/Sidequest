@@ -374,6 +374,20 @@ void App::submitGap() {
     deathWin_->update(questionView(death_, false, true, false, false));
 }
 
+// Clique numa alternativa ou na barra de digitar.
+void App::onItemClick(int kind, int index) {
+    if (buyCtx_ == BuyCtx::Question && !dead_) {
+        if (kind == 0) onBuyChoice(index);
+        return;
+    }
+    if (ctx_ == Ctx::Ask && death_.q && kind == 0) {
+        onChoiceKey(index);
+        if (death_.q->type != QType::Multi) onConfirm();   // única/VF: clicar já responde; várias: marca/desmarca e Enter confirma
+    } else if (ctx_ == Ctx::GapPrompt && kind == 1) {
+        beginTyping();
+    }
+}
+
 void App::onOverlayChar(wchar_t c) {
     if (ctx_ == Ctx::Report) {
         if (c == 13 || c == 27) dismissReport();
@@ -589,11 +603,13 @@ bool App::ensureGfx() {
         deathWin_->onChar = [this](wchar_t c) { onOverlayChar(c); };
         deathWin_->onClick = [this] { if (ctx_ == Ctx::Report) dismissReport(); };
         deathWin_->onCloseAttempt = [this] { closeAttempt(); };
+        deathWin_->onItem = [this](int k, int i) { onItemClick(k, i); };
     }
     if (!buyWin_) {
         buyWin_ = std::make_unique<OverlayWindow>(gfx_, OverlayMode::Corner, cfg_.buyCorner, 24);
         if (!buyWin_->create(hi_)) { buyWin_.reset(); return false; }
         buyWin_->onCloseAttempt = [this] { closeAttempt(); };
+        buyWin_->onItem = [this](int k, int i) { onItemClick(k, i); };
     }
     return true;
 }

@@ -100,6 +100,9 @@ void OverlayWindow::renderCard(const View& v) {
     }
     CardLayout L = renderer_.layout(v, cardW_, scale_);
     cardH_ = L.h;
+    hits_.clear();
+    for (size_t i = 0; i < L.choiceRects.size(); ++i) hits_.push_back({L.choiceRects[i], 0, (int)i});
+    if (L.hasInput) hits_.push_back({L.inputRect, 1, 0});
     int w = (int)std::ceil(L.w), h = (int)std::ceil(L.h);
 
     ComPtr<IDCompositionSurface> surf;
@@ -296,9 +299,24 @@ LRESULT CALLBACK OverlayWindow::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return self ? self->handle(m, w, l) : DefWindowProcW(h, m, w, l);
 }
 
+// ponto em coordenadas de tela (WM_NCHITTEST) ou de cliente (WM_LBUTTONDOWN)
+bool OverlayWindow::hitAt(LPARAM lp, bool isScreen, int* kind, int* index) const {
+    POINT p{(short)LOWORD(lp), (short)HIWORD(lp)};
+    if (isScreen) ScreenToClient(hwnd_, &p);
+    float x = (float)p.x - cardX_, y = (float)p.y - cardY_;
+    for (const Hit& h : hits_)
+        if (x >= h.r.left && x < h.r.right && y >= h.r.top && y < h.r.bottom) {
+            if (kind) *kind = h.kind;
+            if (index) *index = h.index;
+            return true;
+        }
+    return false;
+}
+
 LRESULT OverlayWindow::handle(UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-        case WM_NCHITTEST: return interactive_ ? HTCLIENT : HTTRANSPARENT;
+        case WM_NCHITTEST:   // a janela inteira engole o clique (nada vaza para o jogo); só alternativas/barra reagem
+            return (interactive_ || (visible_ && !hiding_)) ? HTCLIENT : HTTRANSPARENT;
         case WM_MOUSEACTIVATE: return interactive_ ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ERASEBKGND: return 1;
         case WM_CLOSE:   // Alt+F4 não fecha: a saída é deliberada, pelo menu da bandeja
@@ -307,9 +325,12 @@ LRESULT OverlayWindow::handle(UINT m, WPARAM w, LPARAM l) {
         case WM_CHAR:
             if (onChar) onChar((wchar_t)w);
             return 0;
-        case WM_LBUTTONDOWN:
-            if (onClick) onClick();
+        case WM_LBUTTONDOWN: {
+            int kind = 0, index = 0;
+            if (!hiding_ && hitAt(l, false, &kind, &index) && onItem) onItem(kind, index);
+            else if (onClick) onClick();
             return 0;
+        }
         case WM_TIMER:
             if (w == kHideTimer) {
                 KillTimer(hwnd_, kHideTimer);

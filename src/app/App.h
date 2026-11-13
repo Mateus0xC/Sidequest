@@ -49,6 +49,7 @@ private:
     void onChoiceKey(int n);
     void onConfirm();
     void onOverlayChar(wchar_t c);
+    void onItemClick(int kind, int index);
     void showDeathQuestion(const Question* q, bool fresh);
     void nextDeathCard();
     void leaveDeath();

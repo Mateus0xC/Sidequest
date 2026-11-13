@@ -38,6 +38,7 @@ public:
 
     std::function<void(wchar_t)> onChar;
     std::function<void()> onClick, onCloseAttempt, onHidden;
+    std::function<void(int kind, int index)> onItem;   // clique: kind 0 = alternativa, 1 = barra de digitar
 
 private:
     static LRESULT CALLBACK proc(HWND, UINT, WPARAM, LPARAM);
@@ -71,5 +72,8 @@ private:
     ComPtr<IDCompositionScaleTransform> cardScale_, bgScale_, barScale_;
     ComPtr<IDCompositionSurface> cardSurf_, bgSolid_, bgDim_, barSurf_;
     bool blurOn_ = false;
+    struct Hit { D2D1_RECT_F r; int kind, index; };
+    std::vector<Hit> hits_;
+    bool hitAt(LPARAM screenPtOrClient, bool isScreen, int* kind, int* index) const;
 };
 }  // namespace sq

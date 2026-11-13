@@ -83,6 +83,7 @@ CardLayout CardRenderer::layout(const View& v, float width, float s) {
         else if (ch.mark == ViewChoice::Missed) { bd = kOk; border = true; }
         else if (ch.selected) { bg = kSel; bd = kAccent; border = true; }
         box(D2D1::RectF(pad, top, width - pad, top + rowH), 10 * s, true, bg, border, bd);
+        L.choiceRects.push_back(D2D1::RectF(pad, top, width - pad, top + rowH));
         y = top + rp;
         std::wstring num = std::to_wstring(idx++);
         float bx = pad + rp;
@@ -102,6 +103,8 @@ CardLayout CardRenderer::layout(const View& v, float width, float s) {
     if (v.gap) {
         float h = (c ? 40.f : 56.f) * s;
         box(D2D1::RectF(pad, y, width - pad, y + h), 10 * s, true, kRow, true, v.inputActive ? kAccent : kCardBorder);
+        L.inputRect = D2D1::RectF(pad, y, width - pad, y + h);
+        L.hasInput = true;
         std::wstring shown = v.input.empty() && !v.inputActive ? v.placeholder : v.input;
         if (v.inputActive) shown += L"▏";
         float fs = (c ? 17.f : 24.f) * s;

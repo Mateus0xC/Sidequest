@@ -19,6 +19,9 @@ struct CardLayout {
     float w = 0, h = 0;
     float pad = 0;
     std::vector<Prim> prims;
+    std::vector<D2D1_RECT_F> choiceRects;   // áreas clicáveis (coordenadas do cartão)
+    D2D1_RECT_F inputRect{};
+    bool hasInput = false;
 };
 
 class CardRenderer {
