@@ -65,7 +65,6 @@ private:
     // detecção por pixels
     void watchTick();
     void onSample();
-    void scheduleTeach(LifeState s);
 
     // compra
     void startBuy();
@@ -104,8 +103,6 @@ private:
 
     DeathDetector det_;
     CaptureSampler cap_;
-    std::filesystem::path calibPath_;
-    LifeState teachLabel_ = LifeState::Unknown;
 
     Gfx gfx_;
     std::unique_ptr<OverlayWindow> deathWin_, buyWin_;

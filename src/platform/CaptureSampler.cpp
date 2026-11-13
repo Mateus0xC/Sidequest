@@ -7,7 +7,9 @@
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
+#include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <chrono>
 #include <mutex>
 
@@ -19,8 +21,9 @@ namespace {
 struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")) IDirect3DDxgiInterfaceAccess : ::IUnknown {
     virtual HRESULT __stdcall GetInterface(REFIID iid, void** object) = 0;
 };
-// faixa do HUD (fração do quadro): ícones/barras de habilidade e vida, na base da tela
-constexpr float kX0 = 0.25f, kX1 = 0.65f, kY0 = 0.92f, kY1 = 0.99f;
+// Linha branca do painel "Combat Report" (só existe com o jogador morto). Medida em um quadro 1920x1079:
+// y = 554..556, x = 1510..1899. Em frações do quadro, com margem nas pontas: x 0.7917..0.9844, y 0.5134.
+constexpr float kX0 = 0.7917f, kX1 = 0.9844f, kYc = 0.5134f;
 }  // namespace
 
 namespace sq {
@@ -52,7 +55,9 @@ struct CaptureSampler::Impl {
             return;
         D3D11_TEXTURE2D_DESC d{};
         tex->GetDesc(&d);
-        UINT x0 = (UINT)(d.Width * kX0), x1 = (UINT)(d.Width * kX1), y0 = (UINT)(d.Height * kY0), y1 = (UINT)(d.Height * kY1);
+        UINT yc = (UINT)(d.Height * kYc + 0.5f);
+        UINT x0 = (UINT)(d.Width * kX0), x1 = (UINT)(d.Width * kX1), y0 = yc > 0 ? yc - 1 : 0, y1 = yc + 2;   // 3 linhas
+        if (y1 > d.Height) y1 = d.Height;
         UINT w = x1 - x0, h = y1 - y0;
         if (!w || !h) return;
         if (!stg || stgW != w || stgH != h) {
@@ -67,21 +72,20 @@ struct CaptureSampler::Impl {
         ctx->CopySubresourceRegion(stg.get(), 0, 0, 0, 0, tex.get(), 0, &box);   // só a faixa, não o quadro todo
         D3D11_MAPPED_SUBRESOURCE mp{};
         if (FAILED(ctx->Map(stg.get(), 0, D3D11_MAP_READ, 0, &mp))) return;
-        unsigned long long teal = 0, white = 0, sum = 0, n = 0;
-        for (UINT y = 0; y < h; y += 2) {
+        // fração de pixels "brancos" (a linha mede ~(236,232,225)) em cada uma das 3 linhas; vale a melhor
+        float best = 0;
+        for (UINT y = 0; y < h; ++y) {
             const BYTE* row = (const BYTE*)mp.pData + (size_t)y * mp.RowPitch;
-            for (UINT x = 0; x < w; x += 2) {
+            UINT white = 0;
+            for (UINT x = 0; x < w; ++x) {
                 int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
-                if (g > 140 && b > 110 && r < 120 && g > r + 40) ++teal;
-                if (r > 215 && g > 215 && b > 215) ++white;
-                sum += (r + g + b) / 3;
-                ++n;
+                if (r > 215 && g > 215 && b > 205 && std::abs(r - g) < 20) ++white;
             }
+            best = std::max(best, (float)white / w);
         }
         ctx->Unmap(stg.get(), 0);
         frame.Close();
-        if (!n) return;
-        last = {(float)teal / n, (float)white / n, (float)sum / n / 255.f};
+        last = {best};
         ++count;
         if (notify) PostMessageW(notify, msg, 0, 0);
     }

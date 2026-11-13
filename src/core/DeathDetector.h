@@ -1,39 +1,30 @@
 #pragma once
 #include <deque>
-#include <filesystem>
 #include <optional>
 
 namespace sq {
 
-// Resumo de uma faixa do HUD (frações 0..1 de pixels): ciano das barras de habilidade,
-// branco do texto/ícones e luminância média. Sem OCR, sem IA.
+// Leitura do HUD: fração (0..1) de pixels brancos numa linha fixa do painel "Combat Report",
+// que só aparece quando o jogador está morto. Sem OCR, sem IA, sem calibração.
 struct Features {
-    float teal = 0, white = 0, mean = 0;
+    float line = 0;
 };
 
 enum class LifeState { Unknown, Alive, Dead };
 
-// Classifica "vivo/morto" por centróides aprendidos com as hotkeys (F1 = morto; F2/F3 = vivo),
-// com votação por maioria e confirmação em duas leituras seguidas.
+// Regra: linha branca presente (>= limiar) = morto. Votação por maioria dos últimos 5 e confirmação
+// em duas leituras seguidas iguais antes de mudar de estado.
 class DeathDetector {
 public:
-    void teach(LifeState s, const Features& f);        // média incremental
-    bool ready(int minEach = 3) const { return nAlive_ >= minEach && nDead_ >= minEach; }
-    int taughtAlive() const { return nAlive_; }
-    int taughtDead() const { return nDead_; }
+    explicit DeathDetector(float threshold = 0.8f) : threshold_(threshold) {}
 
     // Uma leitura (~4x/s). Devolve o novo estado confirmado quando ele muda.
     std::optional<LifeState> observe(const Features& f);
     LifeState state() const { return confirmed_; }
-    void setState(LifeState s);                         // sincroniza com eventos manuais
-
-    bool load(const std::filesystem::path& p);
-    bool save(const std::filesystem::path& p) const;
+    void setState(LifeState s);   // sincroniza com eventos manuais (F1/F2/F3)
 
 private:
-    LifeState classify(const Features& f) const;
-    Features alive_, dead_;
-    int nAlive_ = 0, nDead_ = 0;
+    float threshold_;
     std::deque<LifeState> votes_;
     LifeState confirmed_ = LifeState::Unknown;
 };

@@ -165,24 +165,21 @@ TEST_CASE("sessão: erros repetidos no conteúdo marcam 'estudar fora'") {
     CHECK(s.nextQuestion(Slot::Death, 1000) == nullptr);  // sem mais perguntas desse conteúdo
 }
 
-TEST_CASE("detector: só age depois de calibrado e exige confirmação") {
+TEST_CASE("detector: linha branca presente = morto, com confirmação") {
     DeathDetector d;
-    Features alive{0.030f, 0.060f, 0.40f}, dead{0.0f, 0.010f, 0.38f};
-    CHECK_FALSE(d.observe(dead).has_value());               // sem calibração não dispara
-    for (int i = 0; i < 3; ++i) { d.teach(LifeState::Alive, alive); d.teach(LifeState::Dead, dead); }
-    CHECK(d.ready());
+    Features alive{0.0f}, dead{1.0f};
     d.setState(LifeState::Alive);
 
-    CHECK_FALSE(d.observe(dead).has_value());               // uma leitura isolada não basta
-    CHECK_FALSE(d.observe(alive).has_value());              // oscilou: continua vivo
+    CHECK_FALSE(d.observe(dead).has_value());       // uma leitura isolada não basta
+    CHECK_FALSE(d.observe(alive).has_value());      // oscilou: continua vivo
     CHECK_FALSE(d.observe(alive).has_value());
     d.setState(LifeState::Alive);
     CHECK_FALSE(d.observe(dead).has_value());
     CHECK_FALSE(d.observe(dead).has_value());
-    auto ev = d.observe(dead);                              // maioria + duas leituras seguidas
+    auto ev = d.observe(dead);                      // maioria + duas leituras seguidas
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Dead);
-    CHECK_FALSE(d.observe(dead).has_value());               // já confirmado: sem evento repetido
+    CHECK_FALSE(d.observe(dead).has_value());       // já confirmado: sem evento repetido
 
     CHECK_FALSE(d.observe(alive).has_value());
     CHECK_FALSE(d.observe(alive).has_value());
@@ -191,16 +188,14 @@ TEST_CASE("detector: só age depois de calibrado e exige confirmação") {
     CHECK(*ev == LifeState::Alive);
 }
 
-TEST_CASE("detector: calibração persiste em disco") {
-    fs::path dir = tmpDir();
-    DeathDetector d;
-    d.teach(LifeState::Alive, {0.03f, 0.06f, 0.4f});
-    d.teach(LifeState::Dead, {0.0f, 0.01f, 0.38f});
-    CHECK(d.save(dir / "calibracao.json"));
-    DeathDetector e;
-    CHECK(e.load(dir / "calibracao.json"));
-    CHECK(e.taughtAlive() == 1);
-    CHECK(e.taughtDead() == 1);
+TEST_CASE("detector: linha parcial abaixo do limiar conta como vivo") {
+    DeathDetector d;                                // limiar padrão 0,8
+    d.setState(LifeState::Dead);
+    CHECK_FALSE(d.observe({0.5f}).has_value());
+    CHECK_FALSE(d.observe({0.5f}).has_value());
+    auto ev = d.observe({0.5f});
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Alive);
 }
 
 TEST_CASE("banco real do usuário (se existir)") {
