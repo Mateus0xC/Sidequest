@@ -194,7 +194,9 @@ void App::onTimer(UINT_PTR id) {
     switch (id) {
         case T_DEATH:
             deathPending_ = false;
-            if (!dead_ || ctx_ != Ctx::None) return;
+            if (!dead_) return;
+            duckAudio();
+            if (ctx_ != Ctx::None || cfg_.deathDisplay == Display::Off) return;
             if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) return;
             if (ensureGfx()) {
                 ensureSession();
@@ -248,9 +250,7 @@ void App::onDie() {
     ensureSession();
     endBuy(false);
     dead_ = true;
-    duckAudio();
-    if (cfg_.deathDisplay == Display::Off) return;
-    deathPending_ = true;
+    deathPending_ = true;   // o volume só baixa depois da espera (junto com a pergunta)
     SetTimer(ctl_, T_DEATH, (UINT)std::max(0, cfg_.deathDelayMs), nullptr);
 }
 
