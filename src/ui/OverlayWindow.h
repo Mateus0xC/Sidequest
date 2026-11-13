@@ -28,11 +28,7 @@ public:
     void show(const View& v, HMONITOR mon, const PreviewParams* pv, double barSeconds);
     void update(const View& v);       // redesenha o cartão, sem animação
     void hide(bool animate);          // animação de ~100 ms
-    // Captura de input: janela transparente em foco, para o jogo não receber mouse/teclado.
-    // Só chamar de dentro de um WM_HOTKEY (único momento em que o Windows permite tomar o foco).
-    void capture(HMONITOR mon);
-    void peek(bool on);               // "espiar": fica transparente (e sem blur) mas mantém o foco
-    void hideInstant();               // some sem destruir nada
+    void hideInstant();               // "espiar": some sem destruir nada
     void showInstant();
     bool visible() const { return visible_; }
     HWND hwnd() const { return hwnd_; }
@@ -74,6 +70,6 @@ private:
     ComPtr<IDCompositionEffectGroup> rootFx_, bgFx_, cardFx_;
     ComPtr<IDCompositionScaleTransform> cardScale_, bgScale_, barScale_;
     ComPtr<IDCompositionSurface> cardSurf_, bgSolid_, bgDim_, barSurf_;
-    bool blurOn_ = false, backdropWanted_ = false;
+    bool blurOn_ = false;
 };
 }  // namespace sq

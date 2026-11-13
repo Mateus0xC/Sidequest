@@ -52,7 +52,6 @@ private:
     void showDeathQuestion(const Question* q, bool fresh);
     void nextDeathCard();
     void leaveDeath();
-    void releaseCapture();
     void beginTyping();
     void submitGap();
     void commitDeath();
