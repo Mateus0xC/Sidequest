@@ -13,7 +13,6 @@ OverlayWindow::OverlayWindow(Gfx& g, OverlayMode mode, std::string corner, int m
     : g_(g), renderer_(g), mode_(mode), corner_(std::move(corner)), margin_(margin) {}
 
 OverlayWindow::~OverlayWindow() {
-    guardOn(false);
     preview_.detach();
     if (hwnd_) DestroyWindow(hwnd_);
 }
@@ -210,7 +209,6 @@ void OverlayWindow::show(const View& v, HMONITOR mon, const PreviewParams* pv, d
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     visible_ = true;
-    guardOn(true);
     if (hasPv_) {
         int pw = (int)((mon_.right - mon_.left) * pv_.widthPct / 100.f);
         preview_.attach(hwnd_, pv_.src, pv_.corner, pw, (int)(pv_.margin), mon_.right - mon_.left,
@@ -242,7 +240,6 @@ void OverlayWindow::hideInstant() {
     if (!visible_) return;
     ShowWindow(hwnd_, SW_HIDE);
     visible_ = false;
-    guardOn(false);
 }
 
 void OverlayWindow::showInstant() {
@@ -250,7 +247,6 @@ void OverlayWindow::showInstant() {
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     visible_ = true;
-    guardOn(true);
 }
 
 // Blur-behind do DWM (borra o que está atrás da janela, ao vivo). API não documentada do user32,
@@ -269,7 +265,6 @@ void OverlayWindow::setBackdropBlur(bool on) {
 }
 
 void OverlayWindow::releaseContent() {
-    guardOn(false);
     setBackdropBlur(false);
     preview_.detach();
     cardV_->SetContent(nullptr);
@@ -304,40 +299,6 @@ LRESULT CALLBACK OverlayWindow::proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return self ? self->handle(m, w, l) : DefWindowProcW(h, m, w, l);
 }
 
-namespace {
-std::vector<OverlayWindow*> g_guarded;
-HHOOK g_hook = nullptr;
-constexpr UINT WM_GUARD_CLICK = WM_APP + 2;
-}  // namespace
-
-void OverlayWindow::guardOn(bool on) {
-    auto it = std::find(g_guarded.begin(), g_guarded.end(), this);
-    if (on && it == g_guarded.end()) g_guarded.push_back(this);
-    if (!on && it != g_guarded.end()) g_guarded.erase(it);
-    if (!g_guarded.empty() && !g_hook)
-        g_hook = SetWindowsHookExW(WH_MOUSE_LL, &OverlayWindow::mouseHook, GetModuleHandleW(nullptr), 0);
-    if (g_guarded.empty() && g_hook) { UnhookWindowsHookEx(g_hook); g_hook = nullptr; }
-}
-
-LRESULT CALLBACK OverlayWindow::mouseHook(int code, WPARAM w, LPARAM l) {
-    if (code == HC_ACTION) {
-        switch (w) {
-            case WM_LBUTTONDOWN: case WM_LBUTTONUP: case WM_RBUTTONDOWN: case WM_RBUTTONUP:
-            case WM_MBUTTONDOWN: case WM_MBUTTONUP: case WM_MOUSEWHEEL: case WM_XBUTTONDOWN: case WM_XBUTTONUP: {
-                POINT pt = ((MSLLHOOKSTRUCT*)l)->pt;
-                for (OverlayWindow* o : g_guarded) {
-                    RECT r;
-                    if (!o->visible_ || o->hiding_ || !GetWindowRect(o->hwnd_, &r) || !PtInRect(&r, pt)) continue;
-                    if (w == WM_LBUTTONDOWN) PostMessageW(o->hwnd_, WM_GUARD_CLICK, (WPARAM)pt.x, (LPARAM)pt.y);
-                    return 1;   // engolido: nem o jogo (raw input) nem ninguém mais recebe
-                }
-                break;
-            }
-        }
-    }
-    return CallNextHookEx(nullptr, code, w, l);
-}
-
 // ponto em coordenadas de tela (WM_NCHITTEST) ou de cliente (WM_LBUTTONDOWN)
 bool OverlayWindow::hitAt(LPARAM lp, bool isScreen, int* kind, int* index) const {
     POINT p{(short)LOWORD(lp), (short)HIWORD(lp)};
@@ -364,14 +325,6 @@ LRESULT OverlayWindow::handle(UINT m, WPARAM w, LPARAM l) {
         case WM_CHAR:
             if (onChar) onChar((wchar_t)w);
             return 0;
-        case WM_GUARD_CLICK: {   // clique engolido pelo hook: w = x, l = y (tela)
-            POINT p{(LONG)w, (LONG)l};
-            ScreenToClient(hwnd_, &p);
-            int kind = 0, index = 0;
-            if (!hiding_ && hitAt(MAKELPARAM((short)p.x, (short)p.y), false, &kind, &index) && onItem) onItem(kind, index);
-            else if (onClick) onClick();
-            return 0;
-        }
         case WM_LBUTTONDOWN: {
             int kind = 0, index = 0;
             if (!hiding_ && hitAt(l, false, &kind, &index) && onItem) onItem(kind, index);
