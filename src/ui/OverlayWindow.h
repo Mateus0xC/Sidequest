@@ -49,6 +49,10 @@ private:
     ComPtr<IDCompositionSurface> solidSurface(D2D1_COLOR_F c);
     void releaseContent();
     void setBackdropBlur(bool on);
+    // Hook de mouse de baixo nível (só no nosso processo, sem injeção): engole botões/roda sobre a janela
+    // para o jogo, que lê o mouse por raw input, não receber o clique.
+    void guardOn(bool on);
+    static LRESULT CALLBACK mouseHook(int code, WPARAM w, LPARAM l);
 
     Gfx& g_;
     CardRenderer renderer_;
