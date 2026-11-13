@@ -4,7 +4,7 @@
   "estado": "estado.json",
 
   // Janela cuja miniatura aparece no canto. Para testar, use "Bloco de Notas" e deixe a classe vazia.
-  "janela_alvo": { "titulo": "VALORANT", "classe": "UnrealWindow" },
+  "janela_alvo": { "titulo": "VALORANT", "classe": "VALORANTUnrealWindow" },
 
   "previa": { "ativa": true, "largura_pct": 22, "canto": "bottom-right", "margem": 24 },
 

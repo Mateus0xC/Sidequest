@@ -17,7 +17,7 @@ struct Config {
 
     // janela cuja miniatura aparece na prévia (substring do título, não diferencia maiúsculas)
     std::string targetTitle = "VALORANT";
-    std::string targetClass = "UnrealWindow";
+    std::string targetClass = "VALORANTUnrealWindow";
 
     bool previewEnabled = true;
     int previewWidthPct = 22;                 // % da largura do monitor

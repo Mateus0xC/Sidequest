@@ -17,3 +17,6 @@ target_link_options(sidequest PRIVATE /MANIFEST:EMBED)
 
 add_executable(sq_tests tests/test_core.cpp)
 target_link_libraries(sq_tests PRIVATE sq_core)
+
+add_executable(sq_wgc_probe tools/wgc_probe.cpp)
+target_link_libraries(sq_wgc_probe PRIVATE d3d11 dxgi windowsapp)

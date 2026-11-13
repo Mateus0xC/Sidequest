@@ -311,6 +311,7 @@ void App::onChoiceKey(int n) {
 }
 
 void App::onConfirm() {
+    if (ctx_ == Ctx::Report) { dismissReport(); return; }
     if (ctx_ == Ctx::Ask && death_.q) {
         if (death_.sel.empty()) return;
         death_.correct = evaluate(*death_.q, death_.sel);
@@ -411,12 +412,14 @@ void App::showReport() {
     v.hint = L"Enter, Esc ou clique para fechar";
     ctx_ = Ctx::Report;
     deathWin_->show(v, monitorFor(target()), nullptr, 0);
+    hk_->setGroup(G_ANSWER, true);   // Enter fecha o relatório mesmo se a janela não ganhar foco
     deathWin_->activate();
 }
 
 void App::dismissReport() {
     if (ctx_ != Ctx::Report) return;
     ctx_ = Ctx::None;
+    hk_->setGroup(G_ANSWER, false);
     deathWin_->hide(true);
     focusTarget();
 }
