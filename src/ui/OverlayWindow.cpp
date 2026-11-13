@@ -246,7 +246,9 @@ void OverlayWindow::capture(HMONITOR mon) {
     barV_->SetContent(nullptr);
     root_->SetEffect(nullptr);
     g_.dcomp->Commit();
-    place();
+    // 1x1: só o foco importa para bloquear o input. Uma janela de tela cheia por cima do jogo
+    // tira o DWM do modo de apresentação direta (engasgo); isso fica para quando a pergunta aparecer.
+    SetWindowPos(hwnd_, HWND_TOPMOST, mon_.left, mon_.top, 1, 1, SWP_NOACTIVATE);
     setInteractive(true);
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     visible_ = true;
