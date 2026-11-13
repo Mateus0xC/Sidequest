@@ -163,6 +163,7 @@ void OverlayWindow::show(const View& v, HMONITOR mon, const PreviewParams* pv, d
     hasPv_ = pv && pv->src && mode_ == OverlayMode::Full && !pv->background;
     if (hasPv_) pv_ = *pv;
     barSeconds_ = barSeconds;
+    backdropWanted_ = backdrop;
     setBackdropBlur(backdrop);
 
     root_->SetEffect(nullptr);
@@ -231,6 +232,39 @@ void OverlayWindow::hide(bool animate) {
     root_->SetEffect(rootFx_.Get());
     g_.dcomp->Commit();
     SetTimer(hwnd_, kHideTimer, (UINT)(kExit * 1000) + 25, nullptr);
+}
+
+void OverlayWindow::capture(HMONITOR mon) {
+    if (!hwnd_ || mode_ != OverlayMode::Full) return;
+    MONITORINFO mi{sizeof mi};
+    GetMonitorInfoW(mon, &mi);
+    mon_ = mi.rcMonitor;
+    KillTimer(hwnd_, kHideTimer);
+    hiding_ = false;
+    bgV_->SetContent(nullptr);
+    cardV_->SetContent(nullptr);
+    barV_->SetContent(nullptr);
+    root_->SetEffect(nullptr);
+    g_.dcomp->Commit();
+    place();
+    setInteractive(true);
+    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    visible_ = true;
+    SetForegroundWindow(hwnd_);
+    SetFocus(hwnd_);
+}
+
+void OverlayWindow::peek(bool on) {
+    if (!visible_) return;
+    if (on) {
+        setBackdropBlur(false);
+        rootFx_->SetOpacity(0.f);
+        root_->SetEffect(rootFx_.Get());
+    } else {
+        root_->SetEffect(nullptr);
+        setBackdropBlur(backdropWanted_);
+    }
+    g_.dcomp->Commit();
 }
 
 void OverlayWindow::hideInstant() {

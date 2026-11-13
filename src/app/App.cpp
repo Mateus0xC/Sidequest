@@ -195,7 +195,7 @@ void App::onTimer(UINT_PTR id) {
         case T_DEATH:
             deathPending_ = false;
             if (!dead_ || ctx_ != Ctx::None) return;
-            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) return;
+            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) { releaseCapture(); return; }
             if (ensureGfx()) {
                 ensureSession();
                 const Question* q = session_->nextQuestion(Slot::Death, nowSec());
@@ -203,7 +203,9 @@ void App::onTimer(UINT_PTR id) {
                 logf("morte: pergunta=%s alvo=%p", q ? q->key().c_str() : "(nenhuma)", (void*)t);
                 if (q) {
                     showDeathQuestion(q, true);
-                    logf("overlay visivel=%d", (int)deathWin_->visible());
+                    logf("overlay visivel=%d foco=%d", (int)deathWin_->visible(), (int)(GetForegroundWindow() == deathWin_->hwnd()));
+                } else {
+                    releaseCapture();   // sem pergunta: devolve o input ao jogo
                 }
             } else {
                 logf("morte: falha ao iniciar GPU");
@@ -250,6 +252,7 @@ void App::onDie() {
     dead_ = true;
     duckAudio();
     if (cfg_.deathDisplay == Display::Off) return;
+    if (ensureGfx()) deathWin_->capture(monitorFor(target()));   // tira o input do jogo já no F1
     deathPending_ = true;
     SetTimer(ctl_, T_DEATH, (UINT)std::max(0, cfg_.deathDelayMs), nullptr);
 }
@@ -282,7 +285,7 @@ void App::leaveDeath() {
     }
     hk_->setGroup(G_ANSWER, false);
     bool fg = deathWin_ && GetForegroundWindow() == deathWin_->hwnd();
-    if (deathWin_ && ctx_ != Ctx::None) deathWin_->hide(true);
+    if (deathWin_ && (ctx_ != Ctx::None || deathWin_->visible())) deathWin_->hide(true);
     if (fg) focusTarget();
     ctx_ = Ctx::None;
     dead_ = deathPending_ = peeking_ = false;
@@ -315,8 +318,17 @@ void App::nextDeathCard() {
         return;
     }
     hk_->setGroup(G_ANSWER, false);
+    bool fg = GetForegroundWindow() == deathWin_->hwnd();
     deathWin_->hide(true);
+    if (fg) focusTarget();            // acabaram as perguntas: o jogo volta a receber input
     ctx_ = Ctx::None;
+}
+
+void App::releaseCapture() {
+    if (ctx_ != Ctx::None || !deathWin_ || !deathWin_->visible()) return;
+    bool fg = GetForegroundWindow() == deathWin_->hwnd();
+    deathWin_->hide(false);
+    if (fg) focusTarget();
 }
 
 void App::commitDeath() {
@@ -368,9 +380,7 @@ void App::beginTyping() {
 void App::submitGap() {
     death_.correct = answerMatches(narrow(death_.typed), death_.q->accepted);
     ctx_ = Ctx::Reveal;
-    deathWin_->setInteractive(false);
-    focusTarget();                    // devolve o foco ao jogo
-    hk_->setGroup(G_ANSWER, true);
+    hk_->setGroup(G_ANSWER, true);    // o foco continua no Sidequest até a pergunta fechar
     deathWin_->update(questionView(death_, false, true, false, false));
 }
 
@@ -390,13 +400,9 @@ void App::onPeek() {
     if (peeking_) { KillTimer(ctl_, T_PEEK); endPeek(); return; }
     if (!dead_ || ctx_ == Ctx::None || ctx_ == Ctx::Report || !deathWin_ || !deathWin_->visible()) return;
     peeking_ = true;
-    if (ctx_ == Ctx::GapTyping) {     // sai da digitação para o jogo receber as teclas
-        ctx_ = Ctx::GapPrompt;
-        deathWin_->setInteractive(false);
-        focusTarget();
-    }
+    if (ctx_ == Ctx::GapTyping) ctx_ = Ctx::GapPrompt;
     hk_->setGroup(G_ANSWER, false);
-    deathWin_->hideInstant();
+    deathWin_->peek(true);            // transparente, mas o foco (e o bloqueio de input) continua
     SetTimer(ctl_, T_PEEK, (UINT)(std::max(1, cfg_.peekSeconds) * 1000), nullptr);
 }
 
@@ -404,7 +410,7 @@ void App::endPeek() {
     if (!peeking_) return;
     peeking_ = false;
     if (!dead_ || ctx_ == Ctx::None) return;
-    deathWin_->showInstant();
+    deathWin_->peek(false);
     hk_->setGroup(G_ANSWER, true);
 }
 
