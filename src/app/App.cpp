@@ -115,15 +115,6 @@ bool App::init() {
     for (auto& f : hk_->failures) warnings_.push_back(f);
     if (!warnings_.empty()) msg += L"\nAviso: " + widen(warnings_.front()) + (warnings_.size() > 1 ? L" (+" + std::to_wstring(warnings_.size() - 1) + L")" : L"");
     balloon(L"Sidequest pronto", msg);
-    // Pré-aquece GPU e janelas aqui: criar isso na primeira morte causaria uma travada no F1.
-    if (cfg_.deathDisplay != Display::Off || cfg_.buyDisplay != Display::Off) {
-        LARGE_INTEGER a, b, f;
-        QueryPerformanceFrequency(&f);
-        QueryPerformanceCounter(&a);
-        bool ok = ensureGfx();
-        QueryPerformanceCounter(&b);
-        logf("pre-aquecimento gfx ok=%d em %.0f ms", (int)ok, 1000.0 * (b.QuadPart - a.QuadPart) / f.QuadPart);
-    }
     return true;
 }
 
@@ -261,18 +252,7 @@ void App::onDie() {
     dead_ = true;
     duckAudio();
     if (cfg_.deathDisplay == Display::Off) return;
-    if (ensureGfx()) {                                           // tira o input do jogo já no F1
-        LARGE_INTEGER a, b, f;
-        QueryPerformanceFrequency(&f);
-        QueryPerformanceCounter(&a);
-        HWND t = target();
-        QueryPerformanceCounter(&b);
-        double findMs = 1000.0 * (b.QuadPart - a.QuadPart) / f.QuadPart;
-        deathWin_->capture(monitorFor(t));
-        LARGE_INTEGER c;
-        QueryPerformanceCounter(&c);
-        logf("F1: achar janela %.1f ms, capturar %.1f ms", findMs, 1000.0 * (c.QuadPart - b.QuadPart) / f.QuadPart);
-    }
+    if (ensureGfx()) deathWin_->capture(monitorFor(target()));   // tira o input do jogo já no F1
     deathPending_ = true;
     SetTimer(ctl_, T_DEATH, (UINT)std::max(0, cfg_.deathDelayMs), nullptr);
 }
