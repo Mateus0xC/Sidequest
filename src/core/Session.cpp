@@ -14,6 +14,7 @@ void Session::begin(int64_t now) {
     start_ = now;
     shownCount_ = 0;
     stats_ = {};
+    records_.clear();
     retries_.clear();
     pendingPills_.clear();
     seen_.clear();
@@ -106,6 +107,7 @@ void Session::answered(const Question& q, bool correct, bool explanationShown, i
     leitnerApply(store_.get(q.key()), correct, now, cfg_.leitnerDays);
     store_.interrupted.erase(std::remove(store_.interrupted.begin(), store_.interrupted.end(), q.key()),
                              store_.interrupted.end());
+    records_.push_back({q.key(), correct});
     ++stats_.answered;
     auto& t = stats_.byContent[q.content];
     ++t.answered;

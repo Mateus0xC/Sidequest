@@ -21,6 +21,7 @@ struct View {
     bool verdictOk = false;
     std::wstring expected, explanation, hint;
     std::vector<std::wstring> lines;     // corpo livre (relatório)
+    std::vector<char> lineMark;          // 0 normal, 1 acerto, 2 erro (paralelo a lines)
     bool compact = false;                // cartão pequeno de canto
 };
 }  // namespace sq

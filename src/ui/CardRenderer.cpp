@@ -54,9 +54,11 @@ CardLayout CardRenderer::layout(const View& v, float width, float s) {
     if (!v.title.empty())
         y += text(v.title, (c ? 17.f : 27.f) * s, c ? DWRITE_FONT_WEIGHT_NORMAL : DWRITE_FONT_WEIGHT_SEMI_BOLD, kText,
                   pad, inner) + (c ? 12.f : 20.f) * s;
-    for (auto& ln : v.lines) {
+    for (size_t li = 0; li < v.lines.size(); ++li) {
+        const auto& ln = v.lines[li];
         if (ln.empty()) { y += 12 * s; continue; }
-        y += text(ln, 20.f * s, DWRITE_FONT_WEIGHT_NORMAL, kText, pad, inner) + 4 * s;
+        char mk = li < v.lineMark.size() ? v.lineMark[li] : 0;
+        y += text(ln, 20.f * s, DWRITE_FONT_WEIGHT_NORMAL, mk == 1 ? kOk : mk == 2 ? kBad : kText, pad, inner) + 4 * s;
     }
 
     int idx = 1;

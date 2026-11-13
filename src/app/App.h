@@ -72,6 +72,7 @@ private:
     void ensureSession();
     HWND target() const;
     HMONITOR monitorFor(HWND t) const;
+    HMONITOR secondMonitor(HWND t) const;
     void focusTarget();
     void duckAudio();
     void restoreAudio();

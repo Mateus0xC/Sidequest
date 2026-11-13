@@ -455,11 +455,45 @@ void App::showReport() {
     v.tag = L"RELATÓRIO DA SESSÃO";
     v.title = L"Fim de partida";
     for (auto& l : session_->reportLines(nowSec())) v.lines.push_back(widen(l));
-    v.hint = L"Enter ou Esc para fechar";
+    v.lineMark.assign(v.lines.size(), 0);
+
+    // lista das perguntas respondidas (as últimas, para caber na tela)
+    const auto& recs = session_->records();
+    if (!recs.empty()) {
+        constexpr size_t kMax = 14;
+        size_t from = recs.size() > kMax ? recs.size() - kMax : 0;
+        v.lines.push_back(L"");
+        v.lineMark.push_back(0);
+        v.lines.push_back(from ? L"Perguntas respondidas (últimas " + std::to_wstring(kMax) + L" de " + std::to_wstring(recs.size()) + L"):"
+                               : L"Perguntas respondidas:");
+        v.lineMark.push_back(0);
+        for (size_t i = from; i < recs.size(); ++i) {
+            const Question* q = bank_.find(recs[i].key);
+            std::wstring p = q ? widen(q->prompt) : widen(recs[i].key);
+            if (p.size() > 85) p = p.substr(0, 85) + L"…";
+            v.lines.push_back((recs[i].correct ? L"✓ acertou   " : L"✗ errou      ") + p);
+            v.lineMark.push_back(recs[i].correct ? 1 : 2);
+        }
+    }
+    v.hint = L"Enter para fechar";
     ctx_ = Ctx::Report;
-    deathWin_->show(v, monitorFor(target()), nullptr, 0);
-    hk_->setGroup(G_ANSWER, true);   // Enter fecha o relatório mesmo se a janela não ganhar foco
-    deathWin_->activate();
+    deathWin_->show(v, secondMonitor(target()), nullptr, 0);   // sem tomar o foco do jogo
+    hk_->setGroup(G_ANSWER, true);                             // Enter (hotkey) fecha o relatório
+}
+
+static BOOL CALLBACK collectMonitors(HMONITOR m, HDC, LPRECT, LPARAM lp) {
+    ((std::vector<HMONITOR>*)lp)->push_back(m);
+    return TRUE;
+}
+
+// Um monitor diferente do jogo, se houver; senão o próprio monitor do jogo.
+HMONITOR App::secondMonitor(HWND t) const {
+    std::vector<HMONITOR> mons;
+    EnumDisplayMonitors(nullptr, nullptr, collectMonitors, (LPARAM)&mons);
+    HMONITOR cur = monitorFor(t);
+    for (HMONITOR m : mons)
+        if (m != cur) return m;
+    return cur;
 }
 
 void App::dismissReport() {

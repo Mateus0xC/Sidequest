@@ -42,6 +42,8 @@ public:
 
     static bool eligible(Slot s, const Question& q);
     const Stats& stats() const { return stats_; }
+    struct Record { std::string key; bool correct; };
+    const std::vector<Record>& records() const { return records_; }
     bool flagged(const std::string& content) const { return flagged_.count(content) > 0; }
     std::vector<std::string> reportLines(int64_t now) const;
 
@@ -56,6 +58,7 @@ private:
     int64_t start_ = 0;
     int shownCount_ = 0;
     Stats stats_;
+    std::vector<Record> records_;
     std::deque<std::string> interruptedQ_;
     struct Retry { std::string key; int dueShown; };
     std::vector<Retry> retries_;
