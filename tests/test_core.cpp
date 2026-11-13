@@ -2,6 +2,7 @@
 #include <doctest/doctest.h>
 
 #include "core/Config.h"
+#include "core/DeathDetector.h"
 #include "core/Leitner.h"
 #include "core/Progress.h"
 #include "core/Question.h"
@@ -162,6 +163,44 @@ TEST_CASE("sessão: erros repetidos no conteúdo marcam 'estudar fora'") {
     CHECK(s.flagged("01_teste"));
     CHECK(st.studyOutside.count("01_teste") == 1);
     CHECK(s.nextQuestion(Slot::Death, 1000) == nullptr);  // sem mais perguntas desse conteúdo
+}
+
+TEST_CASE("detector: só age depois de calibrado e exige confirmação") {
+    DeathDetector d;
+    Features alive{0.030f, 0.060f, 0.40f}, dead{0.0f, 0.010f, 0.38f};
+    CHECK_FALSE(d.observe(dead).has_value());               // sem calibração não dispara
+    for (int i = 0; i < 3; ++i) { d.teach(LifeState::Alive, alive); d.teach(LifeState::Dead, dead); }
+    CHECK(d.ready());
+    d.setState(LifeState::Alive);
+
+    CHECK_FALSE(d.observe(dead).has_value());               // uma leitura isolada não basta
+    CHECK_FALSE(d.observe(alive).has_value());              // oscilou: continua vivo
+    CHECK_FALSE(d.observe(alive).has_value());
+    d.setState(LifeState::Alive);
+    CHECK_FALSE(d.observe(dead).has_value());
+    CHECK_FALSE(d.observe(dead).has_value());
+    auto ev = d.observe(dead);                              // maioria + duas leituras seguidas
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
+    CHECK_FALSE(d.observe(dead).has_value());               // já confirmado: sem evento repetido
+
+    CHECK_FALSE(d.observe(alive).has_value());
+    CHECK_FALSE(d.observe(alive).has_value());
+    ev = d.observe(alive);
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Alive);
+}
+
+TEST_CASE("detector: calibração persiste em disco") {
+    fs::path dir = tmpDir();
+    DeathDetector d;
+    d.teach(LifeState::Alive, {0.03f, 0.06f, 0.4f});
+    d.teach(LifeState::Dead, {0.0f, 0.01f, 0.38f});
+    CHECK(d.save(dir / "calibracao.json"));
+    DeathDetector e;
+    CHECK(e.load(dir / "calibracao.json"));
+    CHECK(e.taughtAlive() == 1);
+    CHECK(e.taughtDead() == 1);
 }
 
 TEST_CASE("banco real do usuário (se existir)") {

@@ -13,7 +13,8 @@ namespace fs = std::filesystem;
 namespace sq {
 namespace {
 constexpr UINT WM_TRAY = WM_APP + 1;
-enum Timer : UINT_PTR { T_DEATH = 1, T_PEEK, T_BUY, T_BUYDONE, T_EXIT };
+enum Timer : UINT_PTR { T_DEATH = 1, T_PEEK, T_BUY, T_BUYDONE, T_EXIT, T_WATCH, T_TEACH };
+constexpr UINT WM_SAMPLE = WM_APP + 3;
 enum Action { A_DIE = 1, A_REVIVE, A_ROUND, A_END, A_PEEK, A_NOTNOW, A_CH = 10, A_CONFIRM = 20 };
 enum Group { G_GLOBAL = 0, G_ANSWER = 1 };
 enum Menu { ID_REPORT = 1, ID_EXIT = 2 };
@@ -91,6 +92,13 @@ bool App::init() {
     if (!store_.load(cfg_.statePath, err)) warnings_.push_back(err);
     session_ = std::make_unique<Session>(bank_, store_, cfg_);
 
+    calibPath_ = cfg_.baseDir / "calibracao.json";
+    det_.load(calibPath_);
+    if (cfg_.detectEnabled) {
+        logf("detecção: aprendido vivo=%d morto=%d", det_.taughtAlive(), det_.taughtDead());
+        watchTick();
+    }
+
     g_ducker = &ducker_;
     SetUnhandledExceptionFilter(crashFilter);
     if (HWND t = target()) {
@@ -111,7 +119,10 @@ bool App::init() {
     std::wstring msg = std::to_wstring(bank_.all().size()) + L" questões em " + std::to_wstring(bank_.contentCount()) +
                        L" conteúdos. " + widen(cfg_.keys.die) + L" morri · " + widen(cfg_.keys.revive) + L" revivi · " +
                        widen(cfg_.keys.roundStart) + L" round · " + widen(cfg_.keys.matchEnd) + L" fim.";
-    if (bank_.all().empty()) msg = L"Nenhuma questão carregada em " + cfg_.questionsDir.wstring();
+    if (cfg_.detectEnabled && !det_.ready())
+        msg += L"\nCalibrando a detecção: aperte " + widen(cfg_.keys.die) + L" ao morrer e " + widen(cfg_.keys.roundStart) +
+               L" no início do round (3 de cada).";
+    if (bank_.all().empty()) msg =L"Nenhuma questão carregada em " + cfg_.questionsDir.wstring();
     for (auto& f : hk_->failures) warnings_.push_back(f);
     if (!warnings_.empty()) msg += L"\nAviso: " + widen(warnings_.front()) + (warnings_.size() > 1 ? L" (+" + std::to_wstring(warnings_.size() - 1) + L")" : L"");
     balloon(L"Sidequest pronto", msg);
@@ -153,6 +164,7 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
         }
         case WM_TIMER: onTimer(w); return 0;
         case WM_TRAY: onTray(l); return 0;
+        case WM_SAMPLE: onSample(); return 0;
         case WM_COMMAND:
             if (LOWORD(w) == ID_REPORT) onMatchEnd();
             else if (LOWORD(w) == ID_EXIT) requestExit();
@@ -177,8 +189,44 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(ctl_, m, w, l);
 }
 
+// Verifica a cada ~25 s se a janela do jogo existe e liga/desliga a captura (nada roda sem o jogo).
+void App::watchTick() {
+    if (!cfg_.detectEnabled) return;
+    HWND t = target();
+    if (t && !cap_.running()) {
+        bool ok = cap_.start(t, ctl_, WM_SAMPLE);
+        logf("captura iniciada ok=%d borda=%d", (int)ok, cap_.borderState());
+    } else if (!t && cap_.running()) {
+        cap_.stop();
+        logf("captura parada (janela do jogo sumiu)");
+    }
+    SetTimer(ctl_, T_WATCH, 25000, nullptr);
+}
+
+void App::onSample() {
+    Features f = cap_.last();
+    unsigned long long n = cap_.samples();
+    if (n % 40 == 1)
+        logf("amostra teal=%.4f white=%.4f mean=%.3f | estado=%d aprendido vivo=%d morto=%d", f.teal, f.white, f.mean,
+             (int)det_.state(), det_.taughtAlive(), det_.taughtDead());
+    auto ev = det_.observe(f);
+    if (!ev) return;
+    logf("detector: %s (dead_=%d)", *ev == LifeState::Dead ? "MORTO" : "VIVO", (int)dead_);
+    if (*ev == LifeState::Dead && !dead_) onDie();
+    else if (*ev == LifeState::Alive && dead_) onRevive();
+}
+
+// As hotkeys manuais são o "gabarito": 0,9 s depois (o HUD já mudou) a leitura vira exemplo.
+void App::scheduleTeach(LifeState s) {
+    if (!cfg_.detectEnabled || !cap_.running()) return;
+    teachLabel_ = s;
+    SetTimer(ctl_, T_TEACH, 900, nullptr);
+}
+
 void App::onAction(int a) {
     logf("hotkey acao=%d dead=%d ctx=%d", a, (int)dead_, (int)ctx_);
+    if (a == A_DIE) { det_.setState(LifeState::Dead); scheduleTeach(LifeState::Dead); }
+    else if (a == A_REVIVE || a == A_ROUND) { det_.setState(LifeState::Alive); scheduleTeach(LifeState::Alive); }
     if (a == A_DIE) onDie();
     else if (a == A_REVIVE) onRevive();
     else if (a == A_ROUND) onRound();
@@ -211,6 +259,19 @@ void App::onTimer(UINT_PTR id) {
                 logf("morte: falha ao iniciar GPU");
             }
             break;
+        case T_WATCH: watchTick(); break;
+        case T_TEACH: {
+            if (!cap_.running()) break;
+            bool wasReady = det_.ready();
+            det_.teach(teachLabel_, cap_.last());
+            det_.setState(teachLabel_);
+            det_.save(calibPath_);
+            Features f = cap_.last();
+            logf("aprendeu %s: teal=%.4f white=%.4f mean=%.3f | vivo=%d morto=%d", teachLabel_ == LifeState::Dead ? "MORTO" : "VIVO",
+                 f.teal, f.white, f.mean, det_.taughtAlive(), det_.taughtDead());
+            if (!wasReady && det_.ready()) balloon(L"Sidequest", L"Detecção automática de morte calibrada e ativa.");
+            break;
+        }
         case T_PEEK: endPeek(); break;
         case T_BUY: endBuy(true); break;
         case T_BUYDONE: endBuy(true); break;

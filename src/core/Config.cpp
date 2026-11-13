@@ -75,6 +75,7 @@ Config Config::load(const fs::path& file, std::vector<std::string>& w) {
             c.minGapSeconds = t.value("intervalo_minimo_s", c.minGapSeconds);
         }
         c.volumeOnDeath = j.value("volume_na_morte", c.volumeOnDeath);
+        if (j.contains("deteccao")) c.detectEnabled = j["deteccao"].value("ativa", c.detectEnabled);
         if (j.contains("estudo")) {
             auto& s = j["estudo"];
             c.retryAfterCards = s.value("voltar_apos_cartoes", c.retryAfterCards);

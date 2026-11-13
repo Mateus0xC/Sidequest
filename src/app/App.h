@@ -3,7 +3,9 @@
 #include "../core/Progress.h"
 #include "../core/Question.h"
 #include "../core/Session.h"
+#include "../core/DeathDetector.h"
 #include "../platform/AudioDucker.h"
+#include "../platform/CaptureSampler.h"
 #include "../platform/Hotkeys.h"
 #include "../ui/Gfx.h"
 #include "../ui/OverlayWindow.h"
@@ -60,6 +62,11 @@ private:
     void dismissReport();
     void showReport();
 
+    // detecção por pixels
+    void watchTick();
+    void onSample();
+    void scheduleTeach(LifeState s);
+
     // compra
     void startBuy();
     void endBuy(bool animate);
@@ -94,6 +101,11 @@ private:
     std::unique_ptr<Session> session_;
     std::unique_ptr<HotkeyManager> hk_;
     AudioDucker ducker_;
+
+    DeathDetector det_;
+    CaptureSampler cap_;
+    std::filesystem::path calibPath_;
+    LifeState teachLabel_ = LifeState::Unknown;
 
     Gfx gfx_;
     std::unique_ptr<OverlayWindow> deathWin_, buyWin_;

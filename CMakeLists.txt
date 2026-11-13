@@ -12,7 +12,7 @@ target_include_directories(sq_core PUBLIC src third_party)
 
 file(GLOB APP_SRC CONFIGURE_DEPENDS src/app/*.cpp src/platform/*.cpp src/ui/*.cpp)
 add_executable(sidequest WIN32 src/main.cpp ${APP_SRC})
-target_link_libraries(sidequest PRIVATE sq_core d3d11 dxgi d2d1 dwrite dcomp dwmapi user32 shell32 gdi32 ole32 uuid shcore)
+target_link_libraries(sidequest PRIVATE sq_core d3d11 dxgi d2d1 dwrite dcomp dwmapi user32 shell32 gdi32 ole32 uuid shcore windowsapp)
 target_link_options(sidequest PRIVATE /MANIFEST:EMBED)
 
 add_executable(sq_tests tests/test_core.cpp)

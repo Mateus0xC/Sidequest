@@ -34,6 +34,7 @@ struct Config {
     int buySeconds = 20;
     int pillSeconds = 12;
     int minGapSeconds = 0;                    // intervalo mínimo entre perguntas da morte (deathmatch)
+    bool detectEnabled = true;                // detecção automática de morte/revive por pixels
 
     float volumeOnDeath = 0.5f;               // 1.0 desliga o abaixar volume
     int retryAfterCards = 3;
