@@ -370,11 +370,8 @@ void App::showDeathQuestion(const Question* q, bool fresh) {
     hk_->setGroup(G_ANSWER, true);
 }
 
+// Uma pergunta por morte: depois de responder, o Enter fecha a tela e devolve o jogo.
 void App::nextDeathCard() {
-    if (const Question* q = session_->nextQuestion(Slot::Death, nowSec())) {
-        showDeathQuestion(q, false);
-        return;
-    }
     hk_->setGroup(G_ANSWER, false);
     deathWin_->hide(true);
     ctx_ = Ctx::None;
@@ -671,8 +668,8 @@ View App::questionView(const Active& a, bool compact, bool reveal, bool typing, 
         }
         v.explanation = widen(q.explanation);
         if (!buy) {
-            if (q.type == QType::Gap && !a.committed) v.hint = L"1 = eu acertei  ·  2 = eu errei  ·  Enter: próxima";
-            else v.hint = L"Enter: próxima pergunta  ·  " + keyHint();
+            if (q.type == QType::Gap && !a.committed) v.hint = L"1 = eu acertei  ·  2 = eu errei  ·  Enter: voltar ao jogo";
+            else v.hint = L"Enter: voltar ao jogo";
         }
     } else if (typing) {
         v.hint = L"Enter confirma  ·  Backspace apaga  ·  " + keyHint();
