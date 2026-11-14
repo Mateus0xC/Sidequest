@@ -33,6 +33,11 @@ constexpr float kPauseY[4] = {0.9268f, 0.9361f, 0.9453f, 0.9527f};
 // Linha fina do cartão do jogador no menu de compra: 1 px em y = 120, x = 30..382 (1920x1079), cinza ~157.
 // Em frações do quadro, com margem: x 0.0208..0.1927, y 0.1112 (3 linhas candidatas).
 constexpr float kCardX0 = 0.0208f, kCardX1 = 0.1927f, kCardY = 0.1112f;
+// Ícone do mouse "SWITCH PLAYER" do modo espectador (canto inferior esquerdo), medido em 1919x1079: botão
+// esquerdo menta (169,237,224) e corpo branco (251,252,253). 9 pontos fixos, leitura absoluta de cor.
+constexpr int kSpecMint[4][2] = {{136, 854}, {137, 858}, {137, 860}, {136, 862}};
+constexpr int kSpecWhite[5][2] = {{137, 870}, {139, 870}, {141, 870}, {143, 870}, {145, 870}};
+constexpr float kSpecRefW = 1919.f, kSpecRefH = 1079.f;
 }  // namespace
 
 namespace sq {
@@ -40,8 +45,8 @@ namespace sq {
 struct CaptureSampler::Impl {
     winrt::com_ptr<ID3D11Device> dev;
     winrt::com_ptr<ID3D11DeviceContext> ctx;
-    winrt::com_ptr<ID3D11Texture2D> stg, stg2, stg3;
-    UINT stgW = 0, stgH = 0, stg2W = 0, stg2H = 0, stg3W = 0, stg3H = 0;
+    winrt::com_ptr<ID3D11Texture2D> stg, stg2, stg3, stg4;
+    UINT stgW = 0, stgH = 0, stg2W = 0, stg2H = 0, stg3W = 0, stg3H = 0, stg4W = 0, stg4H = 0;
     IDirect3DDevice d3dDev{nullptr};
     GraphicsCaptureItem item{nullptr};
     Direct3D11CaptureFramePool pool{nullptr};
@@ -151,8 +156,30 @@ struct CaptureSampler::Impl {
             }
         }
 
+        // ícone de espectador: 9 pontos fixos com a cor exata (menta + branco); espectando = você está morto
+        float spectate = 0;
+        {
+            auto sx = [&](int px) { return (UINT)(px / kSpecRefW * d.Width + 0.5f); };
+            auto sy = [&](int py) { return (UINT)(py / kSpecRefH * d.Height + 0.5f); };
+            UINT x0 = sx(136), x1 = sx(145) + 1, y0 = sy(854), y1 = sy(870) + 1;
+            if (x1 > x0 && y1 > y0) {
+                band(tex.get(), d, stg4, stg4W, stg4H, x0, x1, y0, y1 - y0, [&](const BYTE* base, UINT pitch, UINT w) {
+                    auto match = [&](int px, int py, int r, int g, int b, int tol) {
+                        UINT x = sx(px) - x0, y = sy(py) - y0;
+                        if (x >= w || y >= y1 - y0) return false;
+                        const BYTE* p = base + (size_t)y * pitch + (size_t)x * 4;   // BGRA
+                        return std::abs(p[2] - r) <= tol && std::abs(p[1] - g) <= tol && std::abs(p[0] - b) <= tol;
+                    };
+                    int n = 0;
+                    for (auto& m : kSpecMint) if (match(m[0], m[1], 169, 237, 224, 10)) ++n;
+                    for (auto& m : kSpecWhite) if (match(m[0], m[1], 251, 252, 253, 8)) ++n;
+                    spectate = n / 9.f;
+                });
+            }
+        }
+
         frame.Close();
-        last = Features{best, card, pause};
+        last = Features{best, card, pause, spectate};
         ++count;
         if (notify) PostMessageW(notify, msg, 0, 0);
     }
@@ -212,7 +239,7 @@ void CaptureSampler::stop() {
     } catch (...) {}
     std::lock_guard<std::mutex> lock(s.m);
     s.session = nullptr; s.pool = nullptr; s.item = nullptr; s.d3dDev = nullptr;
-    s.stg = nullptr; s.stg2 = nullptr; s.stg3 = nullptr; s.ctx = nullptr; s.dev = nullptr;
-    s.stgW = s.stgH = s.stg2W = s.stg2H = s.stg3W = s.stg3H = 0;
+    s.stg = nullptr; s.stg2 = nullptr; s.stg3 = nullptr; s.stg4 = nullptr; s.ctx = nullptr; s.dev = nullptr;
+    s.stgW = s.stgH = s.stg2W = s.stg2H = s.stg3W = s.stg3H = s.stg4W = s.stg4H = 0;
 }
 }  // namespace sq

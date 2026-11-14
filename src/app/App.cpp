@@ -227,7 +227,7 @@ void App::onSample() {
     const bool menu = DeathDetector::menuOpen(f);
     const bool focused = gameFocused();
     if (n % 40 == 1)
-        logf("amostra hud=%.3f card=%.2f pausa=%.2f%s%s estado=%d", f.hud, f.card, f.pause,
+        logf("amostra hud=%.3f espectador=%.2f card=%.2f pausa=%.2f%s%s estado=%d", f.hud, f.spectate, f.card, f.pause,
              menu ? " (menu)" : "", focused ? "" : " (sem foco)", (int)det_.state());
 
     // Alt+Tab (outra aplicação em foco): nada é ativado. O que estiver na tela some, sem penalidade.

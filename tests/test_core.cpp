@@ -220,6 +220,37 @@ TEST_CASE("detector: menu aberto (elementos do menu) não conta como morte") {
     CHECK(*ev == LifeState::Dead);
 }
 
+TEST_CASE("detector: espectando alguém (ícone) é morte mesmo com o HUD de baixo presente") {
+    DeathDetector d;
+    d.setState(LifeState::Alive);
+    Features espec{1.0f, 0.0f, 0.0f, 1.0f};         // HUD presente (é o do jogador observado) + ícone de espectador
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe(espec).has_value());
+    auto ev = d.observe(espec);                      // 5 leituras seguidas, como qualquer morte
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
+    // parou de espectar e o HUD vivo está lá: volta a "vivo" (2 leituras)
+    CHECK_FALSE(d.observe({1.0f}).has_value());
+    ev = d.observe({1.0f});
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Alive);
+}
+
+TEST_CASE("detector: espectar vale como prova mesmo sem ter visto o HUD vivo antes") {
+    DeathDetector d;                                 // estado desconhecido (ex.: app aberto já morto)
+    Features espec{0.0f, 0.0f, 0.0f, 1.0f};
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe(espec).has_value());
+    auto ev = d.observe(espec);
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
+}
+
+TEST_CASE("detector: ícone parcial (poucos pontos) não conta como espectador") {
+    DeathDetector d;
+    d.setState(LifeState::Alive);
+    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe({1.0f, 0.0f, 0.0f, 0.4f}).has_value());   // só 40% dos pontos
+    CHECK(d.state() == LifeState::Alive);
+}
+
 TEST_CASE("detector: ponta parcial do HUD (abaixo do limiar) conta como ausente") {
     DeathDetector d;                                // limiar padrão 0,8
     d.setState(LifeState::Alive);

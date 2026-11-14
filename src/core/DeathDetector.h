@@ -10,6 +10,7 @@ struct Features {
     float hud = 0;      // presença da ponta da linha do HUD
     float card = 0;     // linha branca do cartão do jogador no menu de compra (y≈120, canto esquerdo)
     float pause = 0;    // botão claro "CLOSE SETTINGS" do menu de pausa/configurações (base da tela)
+    float spectate = 0; // ícone do mouse "SWITCH PLAYER" (branco + menta): 0..1 = fração dos 9 pontos que batem; espectando = morto
 };
 
 

@@ -7,7 +7,10 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
         votes_.clear();
         return std::nullopt;
     }
-    votes_.push_back(f.hud >= threshold_ ? LifeState::Alive : LifeState::Dead);
+    // Espectando alguém (ícone "SWITCH PLAYER") = morto, mesmo que o HUD de baixo apareça (é o do jogador
+    // observado). É uma prova positiva, então vale até sem ter visto o HUD vivo antes.
+    const bool spectating = f.spectate >= 0.8f;
+    votes_.push_back((spectating || f.hud < threshold_) ? LifeState::Dead : LifeState::Alive);
     if (votes_.size() > 8) votes_.pop_front();
     auto lastAll = [&](LifeState s, size_t k) {
         if (votes_.size() < k) return false;
@@ -16,13 +19,13 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
         return true;
     };
     // Morte: de propósito muito conservador (nunca interromper o jogo sem ter certeza): exige kDeadReadings
-    // leituras seguidas sem o HUD. A volta do HUD é prova forte (pixels brancos exatos), então 2 bastam.
+    // leituras seguidas. A volta do HUD é prova forte (pixels brancos exatos), então 2 bastam.
     LifeState next;
     if (lastAll(LifeState::Dead, kDeadReadings)) next = LifeState::Dead;
     else if (lastAll(LifeState::Alive, 2)) next = LifeState::Alive;
     else return std::nullopt;
     if (next == confirmed_) return std::nullopt;
-    if (next == LifeState::Dead && confirmed_ != LifeState::Alive) {
+    if (next == LifeState::Dead && confirmed_ != LifeState::Alive && !spectating) {
         confirmed_ = LifeState::Dead;   // sem HUD desde o começo (lobby/menu): não é morte
         return std::nullopt;
     }
