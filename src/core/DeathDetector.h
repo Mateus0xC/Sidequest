@@ -15,14 +15,15 @@ struct Features {
 
 enum class LifeState { Unknown, Alive, Dead };
 
-// Regra: linha do HUD presente (>= limiar) = vivo; ausente = morto. Votação por maioria dos últimos 5 e
-// confirmação em duas leituras seguidas iguais. Nunca emite "morto" sem antes ter visto o HUD vivo
+// Regra: ponta do HUD (pixels brancos) presente = vivo; ausente por várias leituras seguidas = morto. Votação e
+// confirmação por leituras seguidas. Nunca emite "morto" sem antes ter visto o HUD vivo
 // (assim lobby, menus e telas de carregamento não contam como morte). Com um menu aberto, reconhecido por
 // elementos fixos dele (cartão do menu de compra, botão da pausa), a leitura é ignorada.
 class DeathDetector {
 public:
     explicit DeathDetector(float threshold = 0.8f) : threshold_(threshold) {}
     static bool menuOpen(const Features& f) { return f.card >= 0.85f || f.pause >= 0.85f; }
+    static constexpr size_t kDeadReadings = 5;   // leituras seguidas sem o HUD para confirmar a morte
 
     // Uma leitura (~4x/s). Devolve o novo estado confirmado quando ele muda.
     std::optional<LifeState> observe(const Features& f);

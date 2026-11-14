@@ -21,18 +21,16 @@ namespace {
 struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")) IDirect3DDxgiInterfaceAccess : ::IUnknown {
     virtual HRESULT __stdcall GetInterface(REFIID iid, void** object) = 0;
 };
-// Ponta da linha do HUD de baixo, sob o contador de munição (só existe com o jogador vivo). Medida num
-// quadro 1920x1079: a linha tem 1 px em y = 1054 e vai de x = 1273 a 1382 (semitransparente, ~(170,170,178)
-// sobre cenas escuras). Só os últimos ~13 px da ponta: x 1370..1382. Em frações do quadro: x 0.7135..0.7203.
-constexpr float kX0 = 0.7135f, kX1 = 0.7203f, kYc = 0.9768f;
-constexpr int kContrast = 8;    // a linha tem de ser (levemente) mais clara que 2 px acima e abaixo, mesmo em cena clara
-constexpr int kMinLum = 100;
+// Ponta da linha do HUD de baixo, sob o contador de munição (só existe com o jogador vivo). Medida num quadro
+// 1920x1079: a ponta termina em 3-4 pixels de BRANCO PURO (247..255) em y = 1054, x = 1379..1382; a cena nunca
+// é tão branca ali (na tela de morto fica em ~161). Leitura absoluta, sem comparar com pixels vizinhos.
+constexpr float kTipX0 = 0.7182f, kTipX1 = 0.7208f, kTipY = 0.9768f;
+constexpr int kTipWhite = 245;
 // Botão claro "CLOSE SETTINGS" do menu de pausa: caixa x 855..1064, y 993..1034 (1920x1079). Linhas internas
 // y = 1000, 1010, 1020, 1028 e x 862..1058; em frações: x 0.4490..0.5510; y 0.9268, 0.9361, 0.9453, 0.9527.
 constexpr float kPauseX0 = 0.4490f, kPauseX1 = 0.5510f;
 constexpr float kPauseY[4] = {0.9268f, 0.9361f, 0.9453f, 0.9527f};
-constexpr float kPauseOutY[2] = {0.9129f, 0.9638f};   // y = 985 e 1040: logo fora do botão (escuro no menu)
-// Linha branca do cartão do jogador no menu de compra: 1 px em y = 120, x = 30..382 (1920x1079).
+// Linha fina do cartão do jogador no menu de compra: 1 px em y = 120, x = 30..382 (1920x1079), cinza ~157.
 // Em frações do quadro, com margem: x 0.0208..0.1927, y 0.1112 (3 linhas candidatas).
 constexpr float kCardX0 = 0.0208f, kCardX1 = 0.1927f, kCardY = 0.1112f;
 }  // namespace
@@ -89,90 +87,63 @@ struct CaptureSampler::Impl {
             return;
         D3D11_TEXTURE2D_DESC d{};
         tex->GetDesc(&d);
-        UINT yc = (UINT)(d.Height * kYc + 0.5f);
-        // 7 linhas (yc-3..yc+3): 3 candidatas (yc-1..yc+1), cada uma comparada com os vizinhos a ±2 px
-        if (yc < 3 || yc + 4 > d.Height) return;
-        UINT x0 = (UINT)(d.Width * kX0), x1 = (UINT)(d.Width * kX1), y0 = yc - 3, y1 = yc + 4;
-        UINT w = x1 - x0, h = y1 - y0;
-        if (!w || h != 7) return;
-        if (!stg || stgW != w || stgH != h) {
-            D3D11_TEXTURE2D_DESC sd = d;
-            sd.Width = w; sd.Height = h;
-            sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            stg = nullptr;
-            if (FAILED(dev->CreateTexture2D(&sd, nullptr, stg.put()))) return;
-            stgW = w; stgH = h;
-        }
-        D3D11_BOX box{x0, y0, 0, x1, y1, 1};
-        ctx->CopySubresourceRegion(stg.get(), 0, 0, 0, 0, tex.get(), 0, &box);   // só a faixa, não o quadro todo
-        D3D11_MAPPED_SUBRESOURCE mp{};
-        if (FAILED(ctx->Map(stg.get(), 0, D3D11_MAP_READ, 0, &mp))) return;
-        // fração do trecho onde a linha do HUD aparece (mais clara que os vizinhos); vale a melhor candidata
-        auto lum = [&](UINT row, UINT x) {
-            const BYTE* p = (const BYTE*)mp.pData + (size_t)row * mp.RowPitch + (size_t)x * 4;
-            return (p[0] + p[1] + p[2]) / 3;
-        };
-        float best = 0;
-        for (UINT c = 2; c <= 4; ++c) {   // linhas locais 2..4 = yc-1..yc+1
-            UINT hit = 0;
-            for (UINT x = 0; x < w; ++x) {
-                const BYTE* p = (const BYTE*)mp.pData + (size_t)c * mp.RowPitch + (size_t)x * 4;
-                int mx = std::max({(int)p[0], (int)p[1], (int)p[2]}), mn = std::min({(int)p[0], (int)p[1], (int)p[2]});
-                bool whitish = mx - mn < 40;   // branco/cinza-claro, sem cor
-                int l = lum(c, x);
-                if (whitish && l > kMinLum && l - std::max(lum(c - 2, x), lum(c + 2, x)) > kContrast) ++hit;
-            }
-            best = std::max(best, (float)hit / w);
-        }
-        ctx->Unmap(stg.get(), 0);
 
-        // Elementos de menu / banner. Todos exigem CONTRASTE com o entorno (não só "branco"): numa cena clara
-        // (parede, céu, minimapa) o entorno também é claro, então nada disso dispara.
+        // Todas as leituras são ABSOLUTAS: olham a cor de pixels fixos, nunca comparam com os vizinhos
+        // (comparar com a vizinhança falha em cena clara e viraria "morte" falsa).
         auto lumAt = [](const BYTE* row, UINT x) { const BYTE* p = row + (size_t)x * 4; return (p[0] + p[1] + p[2]) / 3; };
-        auto whitish = [](const BYTE* row, UINT x) {
+        auto satAt = [](const BYTE* row, UINT x) {
             const BYTE* p = row + (size_t)x * 4;
-            return std::max({(int)p[0], (int)p[1], (int)p[2]}) - std::min({(int)p[0], (int)p[1], (int)p[2]}) < 40;
+            return std::max({(int)p[0], (int)p[1], (int)p[2]}) - std::min({(int)p[0], (int)p[1], (int)p[2]});
         };
 
-        // botão claro "CLOSE SETTINGS" (pausa): dentro quase branco E acima/abaixo do botão escuro (menu escurece o jogo)
-        float pause = 0;
+        // ponta da linha do HUD: pixels de branco puro; 2 ou mais numa das 3 linhas candidatas = linha presente
+        float best = 0;
         {
-            UINT px0 = (UINT)(d.Width * kPauseX0), px1 = (UINT)(d.Width * kPauseX1);
-            UINT oa = (UINT)(d.Height * kPauseOutY[0] + 0.5f), ob = (UINT)(d.Height * kPauseOutY[1] + 0.5f);
-            if (ob > oa) {
-                band(tex.get(), d, stg2, stg2W, stg2H, px0, px1, oa, ob - oa + 1, [&](const BYTE* base, UINT pitch, UINT w) {
-                    auto rowAt = [&](UINT abs) { return base + (size_t)(abs - oa) * pitch; };
-                    float inBest = 0;
-                    for (float fy : kPauseY) {
-                        UINT y = (UINT)(d.Height * fy + 0.5f);
-                        UINT hit = 0;
-                        for (UINT x = 0; x < w; ++x) if (lumAt(rowAt(y), x) > 225) ++hit;
-                        inBest = std::max(inBest, (float)hit / w);
+            UINT tx0 = (UINT)(d.Width * kTipX0), tx1 = (UINT)(d.Width * kTipX1), ty = (UINT)(d.Height * kTipY + 0.5f);
+            if (ty >= 1) {
+                band(tex.get(), d, stg, stgW, stgH, tx0, tx1, ty - 1, 3, [&](const BYTE* base, UINT pitch, UINT w) {
+                    for (UINT c = 0; c < 3; ++c) {
+                        UINT n = 0;
+                        for (UINT x = 0; x < w; ++x)
+                            if (lumAt(base + (size_t)c * pitch, x) >= kTipWhite) ++n;
+                        best = std::max(best, std::min(1.f, n / 2.f));
                     }
-                    auto darkFrac = [&](UINT y) {
-                        UINT hit = 0;
-                        for (UINT x = 0; x < w; ++x) if (lumAt(rowAt(y), x) < 70) ++hit;
-                        return (float)hit / w;
-                    };
-                    pause = std::min({inBest, darkFrac(oa), darkFrac(ob)});
                 });
             }
         }
 
-        // linha fina do cartão do jogador (menu de compra): mais clara que as linhas 3 px acima e abaixo
+        // botão claro "CLOSE SETTINGS" (pausa): as 4 linhas internas quase brancas em quase toda a largura
+        float pause = 0;
+        {
+            UINT px0 = (UINT)(d.Width * kPauseX0), px1 = (UINT)(d.Width * kPauseX1);
+            UINT ya = (UINT)(d.Height * kPauseY[0] + 0.5f), yb = (UINT)(d.Height * kPauseY[3] + 0.5f);
+            if (yb > ya) {
+                band(tex.get(), d, stg2, stg2W, stg2H, px0, px1, ya, yb - ya + 1, [&](const BYTE* base, UINT pitch, UINT w) {
+                    float worst = 1.f;
+                    for (float fy : {kPauseY[0], kPauseY[3]}) {   // linhas acima e abaixo do texto do botão
+                        UINT y = (UINT)(d.Height * fy + 0.5f);
+                        UINT hit = 0;
+                        for (UINT x = 0; x < w; ++x)
+                            if (lumAt(base + (size_t)(y - ya) * pitch, x) > 225) ++hit;
+                        worst = std::min(worst, (float)hit / w);
+                    }
+                    pause = worst;   // as duas linhas têm de estar quase todas brancas
+                });
+            }
+        }
+
+        // linha fina do cartão do jogador (menu de compra): uniforme, cinza-claro, ao longo de toda a largura
         float card = 0;
         {
             UINT cy = (UINT)(d.Height * kCardY + 0.5f), cx0 = (UINT)(d.Width * kCardX0), cx1 = (UINT)(d.Width * kCardX1);
-            if (cy >= 4) {
-                band(tex.get(), d, stg3, stg3W, stg3H, cx0, cx1, cy - 4, 9, [&](const BYTE* base, UINT pitch, UINT w) {
-                    for (UINT c = 3; c <= 5; ++c) {   // linhas locais 3..5 = cy-1..cy+1
+            if (cy >= 1) {
+                band(tex.get(), d, stg3, stg3W, stg3H, cx0, cx1, cy - 1, 3, [&](const BYTE* base, UINT pitch, UINT w) {
+                    for (UINT c = 0; c < 3; ++c) {
                         const BYTE* r = base + (size_t)c * pitch;
-                        const BYTE* up = base + (size_t)(c - 3) * pitch;
-                        const BYTE* dn = base + (size_t)(c + 3) * pitch;
                         UINT hit = 0;
                         for (UINT x = 0; x < w; ++x) {
                             int l = lumAt(r, x);
-                            if (whitish(r, x) && l > 140 && l - std::max(lumAt(up, x), lumAt(dn, x)) > 60) ++hit;
+                            if (l >= 140 && l <= 175 && satAt(r, x) < 25) ++hit;
                         }
                         card = std::max(card, (float)hit / w);
                     }

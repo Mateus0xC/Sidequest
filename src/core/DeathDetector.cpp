@@ -1,5 +1,4 @@
 #include "DeathDetector.h"
-#include <algorithm>
 
 namespace sq {
 
@@ -9,20 +8,26 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
         return std::nullopt;
     }
     votes_.push_back(f.hud >= threshold_ ? LifeState::Alive : LifeState::Dead);
-    if (votes_.size() > 5) votes_.pop_front();
-    if (votes_.size() < 3) return std::nullopt;
-    int dead = (int)std::count(votes_.begin(), votes_.end(), LifeState::Dead);
-    int alive = (int)votes_.size() - dead;
-    LifeState maj = dead > alive ? LifeState::Dead : LifeState::Alive;
-    // maioria dos últimos 5 + as duas leituras mais recentes iguais
-    if (votes_[votes_.size() - 1] != maj || votes_[votes_.size() - 2] != maj) return std::nullopt;
-    if (maj == confirmed_) return std::nullopt;
-    if (maj == LifeState::Dead && confirmed_ != LifeState::Alive) {
+    if (votes_.size() > 8) votes_.pop_front();
+    auto lastAll = [&](LifeState s, size_t k) {
+        if (votes_.size() < k) return false;
+        for (size_t i = votes_.size() - k; i < votes_.size(); ++i)
+            if (votes_[i] != s) return false;
+        return true;
+    };
+    // Morte: de propósito muito conservador (nunca interromper o jogo sem ter certeza): exige kDeadReadings
+    // leituras seguidas sem o HUD. A volta do HUD é prova forte (pixels brancos exatos), então 2 bastam.
+    LifeState next;
+    if (lastAll(LifeState::Dead, kDeadReadings)) next = LifeState::Dead;
+    else if (lastAll(LifeState::Alive, 2)) next = LifeState::Alive;
+    else return std::nullopt;
+    if (next == confirmed_) return std::nullopt;
+    if (next == LifeState::Dead && confirmed_ != LifeState::Alive) {
         confirmed_ = LifeState::Dead;   // sem HUD desde o começo (lobby/menu): não é morte
         return std::nullopt;
     }
-    confirmed_ = maj;
-    return maj;
+    confirmed_ = next;
+    return next;
 }
 
 void DeathDetector::setState(LifeState s) {

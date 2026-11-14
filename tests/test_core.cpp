@@ -165,24 +165,23 @@ TEST_CASE("sessão: erros repetidos no conteúdo marcam 'estudar fora'") {
     CHECK(s.nextQuestion(Slot::Death, 1000) == nullptr);  // sem mais perguntas desse conteúdo
 }
 
-TEST_CASE("detector: HUD presente = vivo; sumiu = morto, com confirmação") {
+static void feed(DeathDetector& d, Features f, int n) {
+    for (int i = 0; i < n; ++i) d.observe(f);
+}
+
+TEST_CASE("detector: morte exige 5 leituras seguidas sem o HUD; a volta basta com 2") {
     DeathDetector d;
     Features alive{1.0f}, dead{0.0f};
     d.setState(LifeState::Alive);
 
-    CHECK_FALSE(d.observe(dead).has_value());       // uma leitura isolada não basta
-    CHECK_FALSE(d.observe(alive).has_value());      // oscilou: continua vivo
-    CHECK_FALSE(d.observe(alive).has_value());
-    d.setState(LifeState::Alive);
-    CHECK_FALSE(d.observe(dead).has_value());
-    CHECK_FALSE(d.observe(dead).has_value());
-    auto ev = d.observe(dead);                      // maioria + duas leituras seguidas
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe(dead).has_value());   // 4 não bastam
+    CHECK_FALSE(d.observe(alive).has_value());                               // o HUD voltou: zera a contagem
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe(dead).has_value());
+    auto ev = d.observe(dead);                                               // 5ª seguida
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Dead);
-    CHECK_FALSE(d.observe(dead).has_value());       // já confirmado: sem evento repetido
-
-    CHECK_FALSE(d.observe(alive).has_value());
-    CHECK_FALSE(d.observe(alive).has_value());
+    CHECK_FALSE(d.observe(dead).has_value());                                // já confirmado
+    CHECK_FALSE(d.observe(alive).has_value());                               // uma só ainda não
     ev = d.observe(alive);
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Alive);
@@ -190,15 +189,13 @@ TEST_CASE("detector: HUD presente = vivo; sumiu = morto, com confirmação") {
 
 TEST_CASE("detector: sem HUD desde o começo (lobby/menu) não é morte") {
     DeathDetector d;                                // estado desconhecido
-    for (int i = 0; i < 10; ++i) CHECK_FALSE(d.observe({0.0f}).has_value());
+    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe({0.0f}).has_value());
     // o HUD aparece (entrou na partida) e depois some (morreu): aí sim é morte
-    CHECK_FALSE(d.observe({1.0f}).has_value());
     CHECK_FALSE(d.observe({1.0f}).has_value());
     auto ev = d.observe({1.0f});
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Alive);
-    CHECK_FALSE(d.observe({0.0f}).has_value());
-    CHECK_FALSE(d.observe({0.0f}).has_value());
+    feed(d, {0.0f}, 4);
     ev = d.observe({0.0f});
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Dead);
@@ -207,33 +204,26 @@ TEST_CASE("detector: sem HUD desde o começo (lobby/menu) não é morte") {
 TEST_CASE("detector: menu aberto (elementos do menu) não conta como morte") {
     DeathDetector d;
     d.setState(LifeState::Alive);
-    Features pausa{0.0f, 0.0f, 1.0f};         // HUD "sumiu" porque o menu de pausa está aberto
-    Features compra{0.0f, 1.0f, 0.0f};        // menu de compra: linha do cartão do jogador
-    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(pausa).has_value());
-    for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(compra).has_value());
+    Features pausa{0.0f, 0.0f, 1.0f};               // HUD "sumiu" porque o menu de pausa está aberto
+    Features compra{0.0f, 1.0f, 0.0f};              // menu de compra: linha do cartão do jogador
+    for (int i = 0; i < 30; ++i) CHECK_FALSE(d.observe(pausa).has_value());
+    for (int i = 0; i < 30; ++i) CHECK_FALSE(d.observe(compra).has_value());
     CHECK(d.state() == LifeState::Alive);
-    // cena muito clara/escura NÃO é menu: só os elementos contam
-    CHECK_FALSE(DeathDetector::menuOpen({0.0f, 0.0f, 0.0f}));
-    // fechou o menu: continua vivo; depois a morte real (HUD some, sem menu) é detectada
-    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe({1.0f}).has_value());
-    CHECK_FALSE(d.observe({0.0f}).has_value());
-    CHECK_FALSE(d.observe({0.0f}).has_value());
-    auto ev = d.observe({0.0f});
-    REQUIRE(ev.has_value());
-    CHECK(*ev == LifeState::Dead);
-    // um menu no meio das leituras de morte zera os votos parciais
-    d.setState(LifeState::Alive);
-    CHECK_FALSE(d.observe({0.0f}).has_value());
-    CHECK_FALSE(d.observe({0.0f}).has_value());
+    CHECK_FALSE(DeathDetector::menuOpen({0.0f, 0.0f, 0.0f}));   // só os elementos contam
+    // um menu no meio das leituras de morte zera a contagem
+    feed(d, {0.0f}, 4);
     CHECK_FALSE(d.observe(pausa).has_value());
     CHECK_FALSE(d.observe({0.0f}).has_value());
+    feed(d, {0.0f}, 3);
+    auto ev = d.observe({0.0f});                    // 5 seguidas depois do menu
+    REQUIRE(ev.has_value());
+    CHECK(*ev == LifeState::Dead);
 }
 
-TEST_CASE("detector: linha parcial abaixo do limiar conta como HUD ausente") {
+TEST_CASE("detector: ponta parcial do HUD (abaixo do limiar) conta como ausente") {
     DeathDetector d;                                // limiar padrão 0,8
     d.setState(LifeState::Alive);
-    CHECK_FALSE(d.observe({0.5f}).has_value());
-    CHECK_FALSE(d.observe({0.5f}).has_value());
+    for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe({0.5f}).has_value());
     auto ev = d.observe({0.5f});
     REQUIRE(ev.has_value());
     CHECK(*ev == LifeState::Dead);
