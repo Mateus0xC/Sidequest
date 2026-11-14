@@ -229,9 +229,11 @@ void App::onSample() {
 bool App::gameFocused() const {
     HWND fg = GetForegroundWindow();
     if (!fg) return false;
+    // só as janelas de pergunta/relatório contam (digitar a lacuna); a janela de controle e o menu da
+    // bandeja NÃO: abrir o menu tira o foco do jogo, e isso não pode virar "morte"
+    if ((deathWin_ && fg == deathWin_->hwnd()) || (buyWin_ && fg == buyWin_->hwnd())) return true;
     DWORD fp = 0;
     GetWindowThreadProcessId(fg, &fp);
-    if (fp == GetCurrentProcessId()) return true;
     HWND t = target();
     if (!t) return false;
     DWORD tp = 0;
