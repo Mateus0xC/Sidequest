@@ -199,12 +199,59 @@ void App::watchTick() {
 void App::onSample() {
     Features f = cap_.last();
     unsigned long long n = cap_.samples();
-    if (n % 40 == 1) logf("amostra hud=%.3f brilho=%.0f%s estado=%d", f.hud, f.bright * 255.f, f.bright < 75.f / 255.f ? " (menu)" : "", (int)det_.state());
-    auto ev = det_.observe(f);
+    const bool menu = DeathDetector::menuOpen(f);
+    const bool focused = gameFocused();
+    if (n % 40 == 1)
+        logf("amostra hud=%.3f buy=%.2f card=%.2f pausa=%.2f%s%s estado=%d", f.hud, f.buy, f.card, f.pause,
+             menu ? " (menu)" : "", focused ? "" : " (sem foco)", (int)det_.state());
+
+    // Alt+Tab (outra aplicação em foco): nada é ativado. O que estiver na tela some, sem penalidade.
+    if (!focused) {
+        if (gameHadFocus_) {
+            gameHadFocus_ = false;
+            logf("jogo sem foco: pausando");
+            if (buyCtx_ != BuyCtx::None) endBuy(true);
+            if (dead_ && (ctx_ == Ctx::Ask || ctx_ == Ctx::GapPrompt || ctx_ == Ctx::GapTyping || ctx_ == Ctx::Reveal)) onNotNow();
+        }
+        det_.clearVotes();
+        buyDet_.clear();
+        return;
+    }
+    gameHadFocus_ = true;
+
+    auto ev = det_.observe(f);   // com menu aberto, o próprio detector ignora a leitura
+    if (menu) buyDet_.clear();
+    else if (auto b = buyDet_.observe(f.buy >= 0.8f)) {
+        logf("banner da fase de compra: %s (buy=%.2f)", *b ? "apareceu" : "sumiu", f.buy);
+        if (*b) onBuyPhaseStart();
+        else endBuy(true);
+    }
     if (!ev) return;
     logf("detector: %s (hud=%.3f dead_=%d)", *ev == LifeState::Dead ? "MORTO" : "VIVO", f.hud, (int)dead_);
     if (*ev == LifeState::Dead && !dead_) onDie();
     else if (*ev == LifeState::Alive && dead_) onRevive();
+}
+
+// O Valorant (ou uma janela do próprio Sidequest, ex.: digitando uma lacuna) é a janela em foco?
+bool App::gameFocused() const {
+    HWND fg = GetForegroundWindow();
+    if (!fg) return false;
+    DWORD fp = 0;
+    GetWindowThreadProcessId(fg, &fp);
+    if (fp == GetCurrentProcessId()) return true;
+    HWND t = target();
+    if (!t) return false;
+    DWORD tp = 0;
+    GetWindowThreadProcessId(t, &tp);
+    return fp == tp;
+}
+
+// O banner "BUY PHASE" apareceu: novo round (você está vivo) e fase de compra.
+void App::onBuyPhaseStart() {
+    if (ctx_ == Ctx::Report) dismissReport();
+    if (dead_) leaveDeath();
+    ensureSession();
+    startBuy();
 }
 
 void App::onAction(int a) {
@@ -542,6 +589,10 @@ void App::startBuy() {
     View v;
     double secs = cfg_.buySeconds;
     buy_ = Active{};
+    // Segundo monitor: renderiza lá (pergunta rápida ou pílula). Só um monitor: apenas pílula, no canto.
+    HWND tgt = target();
+    HMONITOR mon = secondMonitor(tgt);
+    const bool hasSecond = mon != monitorFor(tgt);
     if (session_->hasPendingPill()) {
         auto p = session_->nextPill();
         v.compact = true;
@@ -549,7 +600,7 @@ void App::startBuy() {
         v.title = widen(p->text);
         buyCtx_ = BuyCtx::Pill;
         secs = cfg_.pillSeconds;
-    } else if (const Question* q = session_->nextQuestion(Slot::Buy, nowSec())) {
+    } else if (const Question* q = hasSecond ? session_->nextQuestion(Slot::Buy, nowSec()) : nullptr) {
         buy_.q = q;
         buyCtx_ = BuyCtx::Question;
         v = questionView(buy_, true, false, false, true);
@@ -564,7 +615,8 @@ void App::startBuy() {
         return;
     }
     PreviewParams* none = nullptr;
-    buyWin_->show(v, monitorFor(target()), none, std::max(1.0, secs));
+    // pílula: no monitor do Valorant; pergunta rápida: no segundo monitor
+    buyWin_->show(v, buyCtx_ == BuyCtx::Question ? mon : monitorFor(tgt), none, std::max(1.0, secs));
     SetTimer(ctl_, T_BUY, (UINT)(std::max(1.0, secs) * 1000), nullptr);
 }
 

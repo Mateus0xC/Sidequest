@@ -65,6 +65,8 @@ private:
     // detecção por pixels
     void watchTick();
     void onSample();
+    bool gameFocused() const;
+    void onBuyPhaseStart();
 
     // compra
     void startBuy();
@@ -102,6 +104,8 @@ private:
     AudioDucker ducker_;
 
     DeathDetector det_;
+    PresenceDetector buyDet_;
+    bool gameHadFocus_ = true;
     CaptureSampler cap_;
 
     Gfx gfx_;

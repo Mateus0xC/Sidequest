@@ -4,7 +4,7 @@
 namespace sq {
 
 std::optional<LifeState> DeathDetector::observe(const Features& f) {
-    if (f.bright < menuBright_ || f.card >= 0.85f) {   // algum menu aberto: não conclui nada e esquece os votos parciais
+    if (menuOpen(f)) {   // algum menu aberto: não conclui nada e esquece os votos parciais
         votes_.clear();
         return std::nullopt;
     }
@@ -21,6 +21,18 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
         confirmed_ = LifeState::Dead;   // sem HUD desde o começo (lobby/menu): não é morte
         return std::nullopt;
     }
+    confirmed_ = maj;
+    return maj;
+}
+
+std::optional<bool> PresenceDetector::observe(bool present) {
+    votes_.push_back(present);
+    if (votes_.size() > 5) votes_.pop_front();
+    if (votes_.size() < 3) return std::nullopt;
+    int yes = (int)std::count(votes_.begin(), votes_.end(), true);
+    bool maj = yes * 2 > (int)votes_.size();
+    if (votes_[votes_.size() - 1] != maj || votes_[votes_.size() - 2] != maj) return std::nullopt;
+    if (maj == confirmed_) return std::nullopt;
     confirmed_ = maj;
     return maj;
 }

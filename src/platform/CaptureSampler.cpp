@@ -25,11 +25,18 @@ struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1")) IDirect3DDxgiInt
 // quadro 1920x1079: a linha tem 1 px em y = 1054 e vai de x = 1273 a 1382 (semitransparente, ~(170,170,178)
 // sobre cenas escuras). Só os últimos ~13 px da ponta: x 1370..1382. Em frações do quadro: x 0.7135..0.7203.
 constexpr float kX0 = 0.7135f, kX1 = 0.7203f, kYc = 0.9768f;
-constexpr int kContrast = 20;   // a linha tem de ser mais clara que 2 px acima e abaixo
-constexpr int kMinLum = 110;
+constexpr int kContrast = 8;    // a linha tem de ser (levemente) mais clara que 2 px acima e abaixo, mesmo em cena clara
+constexpr int kMinLum = 100;
+// Botão claro "CLOSE SETTINGS" do menu de pausa: caixa x 855..1064, y 993..1034 (1920x1079). Linhas internas
+// y = 1000, 1010, 1020, 1028 e x 862..1058; em frações: x 0.4490..0.5510; y 0.9268, 0.9361, 0.9453, 0.9527.
+constexpr float kPauseX0 = 0.4490f, kPauseX1 = 0.5510f;
+constexpr float kPauseY[4] = {0.9268f, 0.9361f, 0.9453f, 0.9527f};
+constexpr float kPauseOutY[2] = {0.9129f, 0.9638f};   // y = 985 e 1040: logo fora do botão (escuro no menu)
 // Linha branca do cartão do jogador no menu de compra: 1 px em y = 120, x = 30..382 (1920x1079).
 // Em frações do quadro, com margem: x 0.0208..0.1927, y 0.1112 (3 linhas candidatas).
 constexpr float kCardX0 = 0.0208f, kCardX1 = 0.1927f, kCardY = 0.1112f;
+// Cantos brancos do banner "BUY PHASE" (1920x1079): esquerdo x 805..818 e direito x 1103..1116, y 135..139.
+constexpr float kBuyLX0 = 0.4193f, kBuyLX1 = 0.4264f, kBuyRX0 = 0.5745f, kBuyRX1 = 0.5813f, kBuyY = 0.1270f;
 }  // namespace
 
 namespace sq {
@@ -37,8 +44,8 @@ namespace sq {
 struct CaptureSampler::Impl {
     winrt::com_ptr<ID3D11Device> dev;
     winrt::com_ptr<ID3D11DeviceContext> ctx;
-    winrt::com_ptr<ID3D11Texture2D> stg, stg2, stg3;
-    UINT stgW = 0, stgH = 0, stg2W = 0, stg3W = 0;
+    winrt::com_ptr<ID3D11Texture2D> stg, stg2, stg3, stg4;
+    UINT stgW = 0, stgH = 0, stg2W = 0, stg2H = 0, stg3W = 0, stg3H = 0, stg4W = 0, stg4H = 0;
     IDirect3DDevice d3dDev{nullptr};
     GraphicsCaptureItem item{nullptr};
     Direct3D11CaptureFramePool pool{nullptr};
@@ -51,6 +58,29 @@ struct CaptureSampler::Impl {
     std::atomic<unsigned long long> count{0};
     std::atomic<bool> alive{false};
     std::atomic<int> border{-1};
+
+    // Copia só uma faixa (x0..x1, y0..y0+h) da GPU para um staging e entrega as linhas a `fn`.
+    template <class F>
+    bool band(ID3D11Texture2D* tex, const D3D11_TEXTURE2D_DESC& d, winrt::com_ptr<ID3D11Texture2D>& st, UINT& stW,
+              UINT& stH, UINT x0, UINT x1, UINT y0, UINT h, F&& fn) {
+        UINT w = x1 > x0 ? x1 - x0 : 0;
+        if (!w || !h || x1 > d.Width || y0 + h > d.Height) return false;
+        if (!st || stW != w || stH != h) {
+            D3D11_TEXTURE2D_DESC sd = d;
+            sd.Width = w; sd.Height = h;
+            sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            st = nullptr;
+            if (FAILED(dev->CreateTexture2D(&sd, nullptr, st.put()))) return false;
+            stW = w; stH = h;
+        }
+        D3D11_BOX box{x0, y0, 0, x1, y0 + h, 1};
+        ctx->CopySubresourceRegion(st.get(), 0, 0, 0, 0, tex, 0, &box);
+        D3D11_MAPPED_SUBRESOURCE mp{};
+        if (FAILED(ctx->Map(st.get(), 0, D3D11_MAP_READ, 0, &mp))) return false;
+        fn((const BYTE*)mp.pData, mp.RowPitch, w);
+        ctx->Unmap(st.get(), 0);
+        return true;
+    }
 
     void onFrame(Direct3D11CaptureFramePool const& sender) {
         std::lock_guard<std::mutex> lock(m);
@@ -98,71 +128,90 @@ struct CaptureSampler::Impl {
         }
         ctx->Unmap(stg.get(), 0);
 
-        // brilho médio da tela (5 linhas inteiras, 1 pixel a cada 6): menus escurecem o jogo todo
-        const UINT kRows = 5;
-        if (!stg2 || stg2W != d.Width) {
-            D3D11_TEXTURE2D_DESC sd = d;
-            sd.Height = kRows;
-            sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            stg2 = nullptr;
-            if (FAILED(dev->CreateTexture2D(&sd, nullptr, stg2.put()))) return;
-            stg2W = d.Width;
-        }
-        for (UINT i = 0; i < kRows; ++i) {
-            UINT ry = (UINT)(d.Height * (0.15f + 0.175f * i));
-            D3D11_BOX rb{0, ry, 0, d.Width, ry + 1, 1};
-            ctx->CopySubresourceRegion(stg2.get(), 0, 0, i, 0, tex.get(), 0, &rb);
-        }
-        float bright = 1.f;
-        D3D11_MAPPED_SUBRESOURCE m2{};
-        if (SUCCEEDED(ctx->Map(stg2.get(), 0, D3D11_MAP_READ, 0, &m2))) {
-            unsigned long long sum = 0, cnt = 0;
-            for (UINT i = 0; i < kRows; ++i) {
-                const BYTE* row = (const BYTE*)m2.pData + (size_t)i * m2.RowPitch;
-                for (UINT x = 0; x < d.Width; x += 6) {
-                    sum += (row[x * 4] + row[x * 4 + 1] + row[x * 4 + 2]) / 3;
-                    ++cnt;
-                }
+        // Elementos de menu / banner. Todos exigem CONTRASTE com o entorno (não só "branco"): numa cena clara
+        // (parede, céu, minimapa) o entorno também é claro, então nada disso dispara.
+        auto lumAt = [](const BYTE* row, UINT x) { const BYTE* p = row + (size_t)x * 4; return (p[0] + p[1] + p[2]) / 3; };
+        auto whitish = [](const BYTE* row, UINT x) {
+            const BYTE* p = row + (size_t)x * 4;
+            return std::max({(int)p[0], (int)p[1], (int)p[2]}) - std::min({(int)p[0], (int)p[1], (int)p[2]}) < 40;
+        };
+
+        // botão claro "CLOSE SETTINGS" (pausa): dentro quase branco E acima/abaixo do botão escuro (menu escurece o jogo)
+        float pause = 0;
+        {
+            UINT px0 = (UINT)(d.Width * kPauseX0), px1 = (UINT)(d.Width * kPauseX1);
+            UINT oa = (UINT)(d.Height * kPauseOutY[0] + 0.5f), ob = (UINT)(d.Height * kPauseOutY[1] + 0.5f);
+            if (ob > oa) {
+                band(tex.get(), d, stg2, stg2W, stg2H, px0, px1, oa, ob - oa + 1, [&](const BYTE* base, UINT pitch, UINT w) {
+                    auto rowAt = [&](UINT abs) { return base + (size_t)(abs - oa) * pitch; };
+                    float inBest = 0;
+                    for (float fy : kPauseY) {
+                        UINT y = (UINT)(d.Height * fy + 0.5f);
+                        UINT hit = 0;
+                        for (UINT x = 0; x < w; ++x) if (lumAt(rowAt(y), x) > 225) ++hit;
+                        inBest = std::max(inBest, (float)hit / w);
+                    }
+                    auto darkFrac = [&](UINT y) {
+                        UINT hit = 0;
+                        for (UINT x = 0; x < w; ++x) if (lumAt(rowAt(y), x) < 70) ++hit;
+                        return (float)hit / w;
+                    };
+                    pause = std::min({inBest, darkFrac(oa), darkFrac(ob)});
+                });
             }
-            ctx->Unmap(stg2.get(), 0);
-            if (cnt) bright = (float)sum / cnt / 255.f;
         }
 
-        // linha branca do cartão do jogador (menu de compra): 3 linhas candidatas, vale a melhor fração
+        // linha fina do cartão do jogador (menu de compra): mais clara que as linhas 3 px acima e abaixo
         float card = 0;
         {
             UINT cy = (UINT)(d.Height * kCardY + 0.5f), cx0 = (UINT)(d.Width * kCardX0), cx1 = (UINT)(d.Width * kCardX1);
-            UINT cw = cx1 - cx0;
-            if (cy >= 1 && cy + 2 <= d.Height && cw) {
-                if (!stg3 || stg3W != cw) {
-                    D3D11_TEXTURE2D_DESC sd = d;
-                    sd.Width = cw; sd.Height = 3;
-                    sd.Usage = D3D11_USAGE_STAGING; sd.BindFlags = 0; sd.MiscFlags = 0; sd.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-                    stg3 = nullptr;
-                    if (SUCCEEDED(dev->CreateTexture2D(&sd, nullptr, stg3.put()))) stg3W = cw;
-                }
-                if (stg3) {
-                    D3D11_BOX cb{cx0, cy - 1, 0, cx1, cy + 2, 1};
-                    ctx->CopySubresourceRegion(stg3.get(), 0, 0, 0, 0, tex.get(), 0, &cb);
-                    D3D11_MAPPED_SUBRESOURCE m3{};
-                    if (SUCCEEDED(ctx->Map(stg3.get(), 0, D3D11_MAP_READ, 0, &m3))) {
-                        for (UINT i = 0; i < 3; ++i) {
-                            const BYTE* row = (const BYTE*)m3.pData + (size_t)i * m3.RowPitch;
-                            UINT hit = 0;
-                            for (UINT x = 0; x < cw; ++x) {
-                                int b = row[x * 4], g = row[x * 4 + 1], r = row[x * 4 + 2];
-                                int mx = std::max({r, g, b}), mn = std::min({r, g, b});
-                                if ((r + g + b) / 3 > 150 && mx - mn < 40) ++hit;
-                            }
-                            card = std::max(card, (float)hit / cw);
+            if (cy >= 4) {
+                band(tex.get(), d, stg3, stg3W, stg3H, cx0, cx1, cy - 4, 9, [&](const BYTE* base, UINT pitch, UINT w) {
+                    for (UINT c = 3; c <= 5; ++c) {   // linhas locais 3..5 = cy-1..cy+1
+                        const BYTE* r = base + (size_t)c * pitch;
+                        const BYTE* up = base + (size_t)(c - 3) * pitch;
+                        const BYTE* dn = base + (size_t)(c + 3) * pitch;
+                        UINT hit = 0;
+                        for (UINT x = 0; x < w; ++x) {
+                            int l = lumAt(r, x);
+                            if (whitish(r, x) && l > 140 && l - std::max(lumAt(up, x), lumAt(dn, x)) > 60) ++hit;
                         }
-                        ctx->Unmap(stg3.get(), 0);
+                        card = std::max(card, (float)hit / w);
                     }
-                }
+                });
+            }
+        }
+
+        // cantos brancos do banner "BUY PHASE": brancos e bem mais claros que a cena acima e o painel abaixo
+        float buy = 0;
+        {
+            UINT lx0 = (UINT)(d.Width * kBuyLX0), lx1 = (UINT)(d.Width * kBuyLX1) + 1;
+            UINT rx0 = (UINT)(d.Width * kBuyRX0), rx1 = (UINT)(d.Width * kBuyRX1) + 1;
+            UINT by = (UINT)(d.Height * kBuyY + 0.5f);
+            if (by >= 8 && rx1 > lx0) {
+                band(tex.get(), d, stg4, stg4W, stg4H, lx0, rx1, by - 8, 17, [&](const BYTE* base, UINT pitch, UINT) {
+                    auto side = [&](UINT a, UINT b) {
+                        float bestS = 0;
+                        for (UINT c = 6; c <= 10; ++c) {   // linhas locais 6..10 = by-2..by+2
+                            const BYTE* r = base + (size_t)c * pitch;
+                            const BYTE* up = base + (size_t)(c - 6) * pitch;
+                            const BYTE* dn = base + (size_t)(c + 6) * pitch;
+                            UINT hit = 0;
+                            for (UINT x = a; x < b; ++x) {
+                                UINT lx = x - lx0;
+                                int l = lumAt(r, lx);
+                                if (whitish(r, lx) && l > 215 && l - std::max(lumAt(up, lx), lumAt(dn, lx)) > 50) ++hit;
+                            }
+                            bestS = std::max(bestS, (float)hit / (b - a));
+                        }
+                        return bestS;
+                    };
+                    buy = std::min(side(lx0, lx1), side(rx0, rx1));   // os dois cantos têm de estar assim
+                });
             }
         }
         frame.Close();
-        last = Features{best, bright, card};
+        last = Features{best, card, pause, buy};
         ++count;
         if (notify) PostMessageW(notify, msg, 0, 0);
     }
@@ -222,7 +271,7 @@ void CaptureSampler::stop() {
     } catch (...) {}
     std::lock_guard<std::mutex> lock(s.m);
     s.session = nullptr; s.pool = nullptr; s.item = nullptr; s.d3dDev = nullptr;
-    s.stg = nullptr; s.stg2 = nullptr; s.stg3 = nullptr; s.ctx = nullptr; s.dev = nullptr;
-    s.stgW = s.stgH = s.stg2W = s.stg3W = 0;
+    s.stg = nullptr; s.stg2 = nullptr; s.stg3 = nullptr; s.stg4 = nullptr; s.ctx = nullptr; s.dev = nullptr;
+    s.stgW = s.stgH = s.stg2W = s.stg2H = s.stg3W = s.stg3H = s.stg4W = s.stg4H = 0;
 }
 }  // namespace sq
