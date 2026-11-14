@@ -384,6 +384,7 @@ void App::nextDeathCard() {
     hk_->setGroup(G_ANSWER, false);
     deathWin_->hide(true);
     ctx_ = Ctx::None;
+    restoreAudio();   // terminou a questão: o volume volta já, sem esperar o respawn
 }
 
 void App::commitDeath() {
@@ -502,6 +503,7 @@ void App::onNotNow() {
     deathWin_->hide(true);
     if (fg) focusTarget();
     ctx_ = Ctx::None;
+    restoreAudio();   // "agora não" também encerra a questão: volume de volta
 }
 
 void App::onMatchEnd() {
