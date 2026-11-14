@@ -12,10 +12,17 @@ static fs::path findConfig() {
     if (argv && argc > 1) p = argv[1];
     if (argv) LocalFree(argv);
     if (!p.empty()) return p;
-    if (fs::exists("config.json")) return fs::absolute("config.json");
+    std::error_code ec;
+    if (fs::exists("config.json", ec)) return fs::absolute("config.json");
+    // procura ao lado do .exe e nas pastas acima (ex.: .exe em ...\build, config.json em ...\)
     wchar_t exe[MAX_PATH];
     GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    return fs::path(exe).parent_path() / "config.json";
+    fs::path dir = fs::path(exe).parent_path();
+    for (int i = 0; i < 5 && !dir.empty(); ++i, dir = dir.parent_path()) {
+        if (fs::exists(dir / "config.json", ec)) return dir / "config.json";
+        if (dir == dir.parent_path()) break;
+    }
+    return fs::path(exe).parent_path() / "config.json";   // não existe: o app usa os padrões e avisa
 }
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {

@@ -17,9 +17,17 @@ enum Timer : UINT_PTR { T_DEATH = 1, T_PEEK, T_BUY, T_BUYDONE, T_EXIT, T_WATCH }
 constexpr UINT WM_SAMPLE = WM_APP + 3;
 enum Action { A_DIE = 1, A_REVIVE, A_ROUND, A_END, A_PEEK, A_NOTNOW, A_CH = 10, A_CONFIRM = 20 };
 enum Group { G_GLOBAL = 0, G_ANSWER = 1 };
-enum Menu { ID_REPORT = 1, ID_EXIT = 2, ID_CLOSEREPORT = 3 };
+enum Menu { ID_REPORT = 1, ID_EXIT = 2, ID_CLOSEREPORT = 3, ID_VOLUME = 4 };
 constexpr wchar_t kCtlClass[] = L"SidequestControl";
 AudioDucker* g_ducker = nullptr;
+
+// Registro do volume original do jogo: numa pasta fixa do usuário (não depende de onde o .exe/config estão),
+// para um volume que ficou baixo ser recuperado mesmo se o app foi aberto de outro lugar.
+fs::path pendingVolumeFile() {
+    const wchar_t* base = _wgetenv(L"LOCALAPPDATA");
+    fs::path dir = base ? fs::path(base) / "Sidequest" : fs::temp_directory_path();
+    return dir / "volume_pendente.txt";
+}
 
 int64_t nowSec() { return (int64_t)time(nullptr); }
 std::string answerOf(const Question& q, const std::set<int>& sel, const std::wstring& typed);   // definida mais abaixo
@@ -48,7 +56,7 @@ LONG WINAPI crashFilter(EXCEPTION_POINTERS*) {
 }  // namespace
 
 App::App(HINSTANCE hi, fs::path configPath)
-    : hi_(hi), configPath_(fs::absolute(configPath)), ducker_(fs::absolute(configPath).parent_path() / "volume_pendente.txt") {}
+    : hi_(hi), configPath_(fs::absolute(configPath)), ducker_(pendingVolumeFile()) {}
 
 App::~App() { g_ducker = nullptr; }
 
@@ -89,12 +97,14 @@ bool App::init() {
     for (auto& f : hk_->failures) logf("falha de tecla: %s", f.c_str());
 
     bank_.load(cfg_.questionsDir);
+    logf("config: %s (existe=%d) | questões: %zu em %s", configPath_.string().c_str(), (int)fs::exists(configPath_),
+         bank_.all().size(), cfg_.questionsDir.string().c_str());
     for (auto& w : bank_.warnings) warnings_.push_back(w);
     std::string err;
     if (!store_.load(cfg_.statePath, err)) warnings_.push_back(err);
     session_ = std::make_unique<Session>(bank_, store_, cfg_);
 
-    if (cfg_.detectEnabled) watchTick();
+    watchTick();
 
     g_ducker = &ducker_;
     SetUnhandledExceptionFilter(crashFilter);
@@ -163,6 +173,13 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
             if (LOWORD(w) == ID_REPORT) onMatchEnd();
             else if (LOWORD(w) == ID_EXIT) requestExit();
             else if (LOWORD(w) == ID_CLOSEREPORT) dismissReport();
+            else if (LOWORD(w) == ID_VOLUME) {
+                HWND t = target();
+                DWORD pid = 0;
+                if (t) GetWindowThreadProcessId(t, &pid);
+                bool ok = pid && ducker_.setVolume(pid, 1.0f);
+                balloon(L"Sidequest", ok ? L"Volume do Valorant restaurado para 100%." : L"Abra o Valorant (com áudio) para restaurar o volume.");
+            }
             return 0;
         case WM_CLOSE: closeAttempt(); return 0;
         case WM_QUERYENDSESSION: return TRUE;
@@ -186,14 +203,20 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
 
 // Verifica a cada ~25 s se a janela do jogo existe e liga/desliga a captura (nada roda sem o jogo).
 void App::watchTick() {
-    if (!cfg_.detectEnabled) return;
     HWND t = target();
-    if (t && !cap_.running()) {
-        bool ok = cap_.start(t, ctl_, WM_SAMPLE);
-        logf("captura iniciada ok=%d borda=%d", (int)ok, cap_.borderState());
-    } else if (!t && cap_.running()) {
-        cap_.stop();
-        logf("captura parada (janela do jogo sumiu)");
+    if (t) {   // volume que ficou baixo de antes (jogo fechou/app caiu com o volume reduzido): tenta recuperar
+        DWORD pid = 0;
+        GetWindowThreadProcessId(t, &pid);
+        ducker_.recoverPending(pid);
+    }
+    if (cfg_.detectEnabled) {
+        if (t && !cap_.running()) {
+            bool ok = cap_.start(t, ctl_, WM_SAMPLE);
+            logf("captura iniciada ok=%d borda=%d", (int)ok, cap_.borderState());
+        } else if (!t && cap_.running()) {
+            cap_.stop();
+            logf("captura parada (janela do jogo sumiu)");
+        }
     }
     SetTimer(ctl_, T_WATCH, 25000, nullptr);
 }
@@ -264,8 +287,8 @@ void App::onTimer(UINT_PTR id) {
             deathPending_ = false;
             logf("espera da morte acabou: dead_=%d ctx=%d", (int)dead_, (int)ctx_);
             if (!dead_) return;
-            if (ctx_ != Ctx::None || cfg_.deathDisplay == Display::Off) { duckAudio(); return; }
-            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) { duckAudio(); return; }
+            if (ctx_ != Ctx::None || cfg_.deathDisplay == Display::Off) return;
+            if (cfg_.minGapSeconds > 0 && nowSec() - lastQuestionEnd_ < cfg_.minGapSeconds) return;
             if (ensureGfx()) {
                 ensureSession();
                 const Question* q = session_->nextQuestion(Slot::Death, nowSec());
@@ -274,12 +297,16 @@ void App::onTimer(UINT_PTR id) {
                 if (q) {
                     showDeathQuestion(q, true);
                     logf("overlay visivel=%d", (int)deathWin_->visible());
+                    // o volume só baixa quando a pergunta realmente aparece (e por último: um problema de
+                    // áudio nunca pode impedir a pergunta)
+                    if (deathWin_->visible()) {
+                        duckAudio();
+                        logf("volume ajustado");
+                    }
                 }
             } else {
                 logf("morte: falha ao iniciar GPU");
             }
-            duckAudio();   // por último: um problema no áudio nunca pode impedir a pergunta
-            logf("volume ajustado");
             break;
         case T_WATCH: watchTick(); break;
         case T_PEEK: endPeek(); break;
@@ -305,6 +332,7 @@ void App::onTray(LPARAM lp) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_REPORT, L"Encerrar sessão e ver relatório");
     if (reportShown_) AppendMenuW(menu, MF_STRING, ID_CLOSEREPORT, L"Fechar relatório");
+    AppendMenuW(menu, MF_STRING, ID_VOLUME, L"Restaurar volume do Valorant (100%)");
     AppendMenuW(menu, MF_STRING, ID_EXIT, L"Sair...");
     POINT pt;
     GetCursorPos(&pt);

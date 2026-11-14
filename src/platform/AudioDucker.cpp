@@ -44,15 +44,29 @@ void AudioDucker::duck(DWORD pid, float factor) {
     float orig = 1.0f;
     if (!apply(pid, &orig, 0, false, factor)) return;
     ducked_ = true; pid_ = pid; original_ = orig;
-    std::ofstream(pending_, std::ios::trunc) << orig;   // para recuperar após crash
+    // Se já existe um registro (volume baixo que sobrou de antes e nunca foi restaurado), ele é o original de
+    // verdade: o volume atual já está baixo. Não sobrescreve.
+    std::error_code ec;
+    if (std::filesystem::exists(pending_, ec)) {
+        float saved = 0;
+        std::ifstream in(pending_);
+        if (in >> saved && saved > original_) original_ = saved;
+    } else {
+        std::filesystem::create_directories(pending_.parent_path(), ec);
+        std::ofstream(pending_, std::ios::trunc) << orig;   // para recuperar após fechar/crash
+    }
 }
 
-void AudioDucker::restore() {
-    if (!ducked_) return;
-    apply(pid_, nullptr, original_, true, 1.0f);
+bool AudioDucker::restore() {
+    if (!ducked_) return true;
+    bool ok = apply(pid_, nullptr, original_, true, 1.0f);
     ducked_ = false;
-    std::error_code ec;
-    std::filesystem::remove(pending_, ec);
+    if (ok) {
+        std::error_code ec;
+        std::filesystem::remove(pending_, ec);
+    }
+    // se não achou a sessão (ex.: o jogo já fechou), o registro continua e recoverPending tenta de novo
+    return ok;
 }
 
 void AudioDucker::recoverPending(DWORD pid) {
@@ -62,5 +76,15 @@ void AudioDucker::recoverPending(DWORD pid) {
     std::ifstream in(pending_);
     if (!(in >> v)) { std::filesystem::remove(pending_, ec); return; }
     if (apply(pid, nullptr, v, true, 1.0f)) std::filesystem::remove(pending_, ec);
+}
+
+bool AudioDucker::setVolume(DWORD pid, float v) {
+    if (!pid) return false;
+    bool ok = apply(pid, nullptr, v, true, 1.0f);
+    if (ok && !ducked_) {
+        std::error_code ec;
+        std::filesystem::remove(pending_, ec);
+    }
+    return ok;
 }
 }  // namespace sq

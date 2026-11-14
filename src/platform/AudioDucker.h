@@ -4,14 +4,16 @@
 
 namespace sq {
 // Abaixa/restaura o volume da sessão de áudio do processo `pid` (WASAPI, por aplicativo).
-// Guarda o volume original em disco para restaurar mesmo após um crash.
+// O volume original fica gravado em disco até a restauração dar certo: o Windows guarda o volume por
+// aplicativo, então se o jogo fechar (ou o app cair) com o volume baixo, ele precisa ser recuperado depois.
 class AudioDucker {
 public:
     explicit AudioDucker(std::filesystem::path pendingFile) : pending_(std::move(pendingFile)) {}
     void duck(DWORD pid, float factor);
-    void restore();
-    // Se um crash anterior deixou o volume baixo, tenta restaurar (precisa do processo no ar).
+    bool restore();                        // false se não achou a sessão de áudio (o registro continua)
+    // Se sobrou volume baixo de uma execução anterior, tenta restaurar (precisa do jogo com áudio no ar).
     void recoverPending(DWORD pid);
+    bool setVolume(DWORD pid, float v);    // força o volume do aplicativo (ex.: "restaurar para 100%")
     bool ducked() const { return ducked_; }
 
 private:
