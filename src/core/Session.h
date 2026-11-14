@@ -37,12 +37,12 @@ public:
     std::optional<Pill> nextPill();
 
     // explanationShown=false (ex.: fase de compra) transforma a explicação em pílula futura.
-    void answered(const Question& q, bool correct, bool explanationShown, int64_t now);
+    void answered(const Question& q, bool correct, bool explanationShown, int64_t now, const std::string& answer = {});
     void interrupted(const Question& q);
 
     static bool eligible(Slot s, const Question& q);
     const Stats& stats() const { return stats_; }
-    struct Record { std::string key; bool correct; };
+    struct Record { std::string key; bool correct; std::string answer; };   // answer: o que o usuário respondeu
     const std::vector<Record>& records() const { return records_; }
     bool flagged(const std::string& content) const { return flagged_.count(content) > 0; }
     std::vector<std::string> reportLines(int64_t now) const;

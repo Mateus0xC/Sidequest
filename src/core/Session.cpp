@@ -103,11 +103,11 @@ std::optional<Pill> Session::nextPill() {
     return Pill{q->contentTitle, q->explanation};
 }
 
-void Session::answered(const Question& q, bool correct, bool explanationShown, int64_t now) {
+void Session::answered(const Question& q, bool correct, bool explanationShown, int64_t now, const std::string& answer) {
     leitnerApply(store_.get(q.key()), correct, now, cfg_.leitnerDays);
     store_.interrupted.erase(std::remove(store_.interrupted.begin(), store_.interrupted.end(), q.key()),
                              store_.interrupted.end());
-    records_.push_back({q.key(), correct});
+    records_.push_back({q.key(), correct, answer});
     ++stats_.answered;
     auto& t = stats_.byContent[q.content];
     ++t.answered;

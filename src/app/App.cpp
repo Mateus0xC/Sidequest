@@ -17,11 +17,12 @@ enum Timer : UINT_PTR { T_DEATH = 1, T_PEEK, T_BUY, T_BUYDONE, T_EXIT, T_WATCH }
 constexpr UINT WM_SAMPLE = WM_APP + 3;
 enum Action { A_DIE = 1, A_REVIVE, A_ROUND, A_END, A_PEEK, A_NOTNOW, A_CH = 10, A_CONFIRM = 20 };
 enum Group { G_GLOBAL = 0, G_ANSWER = 1 };
-enum Menu { ID_REPORT = 1, ID_EXIT = 2 };
+enum Menu { ID_REPORT = 1, ID_EXIT = 2, ID_CLOSEREPORT = 3 };
 constexpr wchar_t kCtlClass[] = L"SidequestControl";
 AudioDucker* g_ducker = nullptr;
 
 int64_t nowSec() { return (int64_t)time(nullptr); }
+std::string answerOf(const Question& q, const std::set<int>& sel, const std::wstring& typed);   // definida mais abaixo
 
 fs::path g_logPath;
 void logf(const char* fmt, ...) {
@@ -161,6 +162,7 @@ LRESULT App::handle(UINT m, WPARAM w, LPARAM l) {
         case WM_COMMAND:
             if (LOWORD(w) == ID_REPORT) onMatchEnd();
             else if (LOWORD(w) == ID_EXIT) requestExit();
+            else if (LOWORD(w) == ID_CLOSEREPORT) dismissReport();
             return 0;
         case WM_CLOSE: closeAttempt(); return 0;
         case WM_QUERYENDSESSION: return TRUE;
@@ -302,6 +304,7 @@ void App::onTray(LPARAM lp) {
     AppendMenuW(menu, MF_STRING | MF_DISABLED, 0, (L"Saídas no meio de sessão: " + std::to_wstring(store_.midExits)).c_str());
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, ID_REPORT, L"Encerrar sessão e ver relatório");
+    if (reportShown_) AppendMenuW(menu, MF_STRING, ID_CLOSEREPORT, L"Fechar relatório");
     AppendMenuW(menu, MF_STRING, ID_EXIT, L"Sair...");
     POINT pt;
     GetCursorPos(&pt);
@@ -314,7 +317,7 @@ void App::onTray(LPARAM lp) {
 // ---------------------------------------------------------------- morte
 
 void App::onDie() {
-    if (ctx_ == Ctx::Report) dismissReport();
+    if (reportShown_) dismissReport();
     logf("onDie: dead_=%d ctx=%d", (int)dead_, (int)ctx_);
     if (dead_) return;
     ensureSession();
@@ -325,12 +328,12 @@ void App::onDie() {
 }
 
 void App::onRevive() {
-    if (ctx_ == Ctx::Report) dismissReport();
+    if (reportShown_) dismissReport();
     leaveDeath();
 }
 
 void App::onRound() {
-    if (ctx_ == Ctx::Report) dismissReport();
+    if (reportShown_) dismissReport();
     leaveDeath();
     ensureSession();
     if (HWND t = target()) {
@@ -389,7 +392,7 @@ void App::nextDeathCard() {
 
 void App::commitDeath() {
     if (!death_.q || death_.committed) return;
-    session_->answered(*death_.q, death_.correct, true, nowSec());
+    session_->answered(*death_.q, death_.correct, true, nowSec(), answerOf(*death_.q, death_.sel, death_.typed));
     death_.committed = true;
     lastQuestionEnd_ = nowSec();
 }
@@ -407,7 +410,6 @@ void App::onChoiceKey(int n) {
 }
 
 void App::onConfirm() {
-    if (ctx_ == Ctx::Report) { dismissReport(); return; }
     if (ctx_ == Ctx::Ask && death_.q) {
         if (death_.sel.empty()) return;
         death_.correct = evaluate(*death_.q, death_.sel);
@@ -454,10 +456,6 @@ void App::onItemClick(int kind, int index) {
 }
 
 void App::onOverlayChar(wchar_t c) {
-    if (ctx_ == Ctx::Report) {
-        if (c == 13 || c == 27) dismissReport();
-        return;
-    }
     if (ctx_ != Ctx::GapTyping) return;
     if (c == 8) { if (!death_.typed.empty()) death_.typed.pop_back(); }
     else if (c == 13) { submitGap(); return; }
@@ -467,7 +465,7 @@ void App::onOverlayChar(wchar_t c) {
 
 void App::onPeek() {
     if (peeking_) { KillTimer(ctl_, T_PEEK); endPeek(); return; }
-    if (!dead_ || ctx_ == Ctx::None || ctx_ == Ctx::Report || !deathWin_ || !deathWin_->visible()) return;
+    if (!dead_ || ctx_ == Ctx::None || !deathWin_ || !deathWin_->visible()) return;
     peeking_ = true;
     if (ctx_ == Ctx::GapTyping) {     // sai da digitação para o jogo receber as teclas
         ctx_ = Ctx::GapPrompt;
@@ -489,7 +487,7 @@ void App::endPeek() {
 
 void App::onNotNow() {
     if (buyCtx_ != BuyCtx::None && !dead_) { endBuy(true); return; }
-    if (!dead_ || ctx_ == Ctx::None || ctx_ == Ctx::Report) return;
+    if (!dead_ || ctx_ == Ctx::None) return;
     KillTimer(ctl_, T_PEEK);
     peeking_ = false;
     if (ctx_ == Ctx::Ask || ctx_ == Ctx::GapPrompt || ctx_ == Ctx::GapTyping) {
@@ -507,13 +505,36 @@ void App::onNotNow() {
 }
 
 void App::onMatchEnd() {
-    if (ctx_ == Ctx::Report) return;
+    if (reportShown_) dismissReport();
     leaveDeath();
     endBuy(false);
     ensureSession();
     session_->end("fim_partida", nowSec());
     showReport();
 }
+
+namespace {
+// o que o usuário marcou/digitou (para o relatório)
+std::string answerOf(const Question& q, const std::set<int>& sel, const std::wstring& typed) {
+    if (q.type == QType::Gap) return narrow(typed);
+    std::string r;
+    for (int i : sel)
+        if (i >= 0 && i < (int)q.alts.size()) r += (r.empty() ? "" : "  |  ") + q.alts[i].text;
+    return r;
+}
+// a resposta certa
+std::string correctOf(const Question& q) {
+    std::string r;
+    if (q.type == QType::Gap) {
+        for (size_t i = 0; i < q.accepted.size() && i < 3; ++i) r += (i ? " / " : "") + q.accepted[i];
+    } else {
+        for (const auto& a : q.alts)
+            if (a.correct) r += (r.empty() ? "" : "  |  ") + a.text;
+    }
+    return r;
+}
+std::wstring clip(std::wstring s, size_t n) { return s.size() > n ? s.substr(0, n) + L"…" : s; }
+}  // namespace
 
 void App::showReport() {
     if (!ensureGfx()) return;
@@ -523,28 +544,27 @@ void App::showReport() {
     for (auto& l : session_->reportLines(nowSec())) v.lines.push_back(widen(l));
     v.lineMark.assign(v.lines.size(), 0);
 
-    // lista das perguntas respondidas (as últimas, para caber na tela)
+    // perguntas e respostas (as últimas, para caber na tela): pergunta, o que você respondeu e a correta
     const auto& recs = session_->records();
     if (!recs.empty()) {
-        constexpr size_t kMax = 14;
+        constexpr size_t kMax = 8;
         size_t from = recs.size() > kMax ? recs.size() - kMax : 0;
-        v.lines.push_back(L"");
-        v.lineMark.push_back(0);
-        v.lines.push_back(from ? L"Perguntas respondidas (últimas " + std::to_wstring(kMax) + L" de " + std::to_wstring(recs.size()) + L"):"
-                               : L"Perguntas respondidas:");
-        v.lineMark.push_back(0);
+        auto add = [&](std::wstring t, char mark) { v.lines.push_back(std::move(t)); v.lineMark.push_back(mark); };
+        add(L"", 0);
+        add(from ? L"Perguntas e respostas (últimas " + std::to_wstring(kMax) + L" de " + std::to_wstring(recs.size()) + L"):"
+                 : L"Perguntas e respostas:", 0);
         for (size_t i = from; i < recs.size(); ++i) {
             const Question* q = bank_.find(recs[i].key);
-            std::wstring p = q ? widen(q->prompt) : widen(recs[i].key);
-            if (p.size() > 85) p = p.substr(0, 85) + L"…";
-            v.lines.push_back((recs[i].correct ? L"✓ acertou   " : L"✗ errou      ") + p);
-            v.lineMark.push_back(recs[i].correct ? 1 : 2);
+            char mk = recs[i].correct ? 1 : 2;
+            add(std::wstring(recs[i].correct ? L"✓ " : L"✗ ") + clip(q ? widen(q->prompt) : widen(recs[i].key), 120), mk);
+            add(L"     Sua resposta: " + (recs[i].answer.empty() ? std::wstring(L"(sem resposta registrada)") : clip(widen(recs[i].answer), 110)), 0);
+            if (!recs[i].correct && q) add(L"     Correta: " + clip(widen(correctOf(*q)), 110), 1);
         }
     }
-    v.hint = L"Enter para fechar";
-    ctx_ = Ctx::Report;
-    deathWin_->show(v, secondMonitor(target()), nullptr, 0);   // sem tomar o foco do jogo
-    hk_->setGroup(G_ANSWER, true);                             // Enter (hotkey) fecha o relatório
+    v.hint = L"Esc ou Enter fecham esta janela (ela fica atrás do jogo, no monitor primário)";
+    if (!reportWin_) return;
+    reportShown_ = true;
+    reportWin_->show(v, MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), nullptr, 0);   // atrás do jogo, sem foco
 }
 
 static BOOL CALLBACK collectMonitors(HMONITOR m, HDC, LPRECT, LPARAM lp) {
@@ -563,11 +583,9 @@ HMONITOR App::secondMonitor(HWND t) const {
 }
 
 void App::dismissReport() {
-    if (ctx_ != Ctx::Report) return;
-    ctx_ = Ctx::None;
-    hk_->setGroup(G_ANSWER, false);
-    deathWin_->hide(true);
-    focusTarget();
+    if (!reportShown_) return;
+    reportShown_ = false;
+    if (reportWin_) reportWin_->hide(true);
 }
 
 // ---------------------------------------------------------------- fase de compra
@@ -623,7 +641,7 @@ void App::onBuyChoice(int n) {
     if (!buy_.q || n >= (int)buy_.q->alts.size()) return;
     buy_.sel = {n};
     buy_.correct = evaluate(*buy_.q, buy_.sel);
-    session_->answered(*buy_.q, buy_.correct, false, nowSec());   // sem tempo: explicação vira pílula se errar
+    session_->answered(*buy_.q, buy_.correct, false, nowSec(), answerOf(*buy_.q, buy_.sel, buy_.typed));   // sem tempo: explicação vira pílula se errar
     buy_.committed = true;
     buyCtx_ = BuyCtx::Answered;
     hk_->setGroup(G_ANSWER, false);
@@ -703,6 +721,13 @@ bool App::ensureGfx() {
         deathWin_ = std::make_unique<OverlayWindow>(gfx_, OverlayMode::Full, "", 0);
         if (!deathWin_->create(hi_)) { deathWin_.reset(); return false; }
         deathWin_->onChar = [this](wchar_t c) { onOverlayChar(c); };
+        reportWin_ = std::make_unique<OverlayWindow>(gfx_, OverlayMode::Report, "", 0);
+        if (reportWin_->create(hi_)) {
+            reportWin_->onChar = [this](wchar_t c) { if (c == 13 || c == 27) dismissReport(); };
+            reportWin_->onHidden = [this] { reportShown_ = false; };
+        } else {
+            reportWin_.reset();
+        }
         deathWin_->onCloseAttempt = [this] { closeAttempt(); };
     }
     if (!buyWin_) {

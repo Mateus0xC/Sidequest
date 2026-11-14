@@ -28,9 +28,13 @@ bool OverlayWindow::create(HINSTANCE hi) {
         if (!RegisterClassExW(&wc)) return false;
         registered = true;
     }
-    hwnd_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, kClass,
-                            L"Sidequest", WS_POPUP, 0, 0, 100, 100, nullptr, nullptr, hi, this);
+    const bool report = mode_ == OverlayMode::Report;
+    // Relatório: janela normal (aparece na barra de tarefas/Alt+Tab), nunca por cima do jogo
+    DWORD ex = WS_EX_NOREDIRECTIONBITMAP | (report ? WS_EX_APPWINDOW : (WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE));
+    hwnd_ = CreateWindowExW(ex, kClass, report ? L"Sidequest — Relatório da sessão" : L"Sidequest", WS_POPUP, 0, 0, 100, 100,
+                            nullptr, nullptr, hi, this);
     if (!hwnd_) return false;
+    if (report) interactive_ = true;   // aceita foco quando você for até ela
     if (FAILED(g_.dcomp->CreateTargetForHwnd(hwnd_, TRUE, &target_))) return false;
     g_.dcomp->CreateVisual(&root_);
     g_.dcomp->CreateVisual(&bgV_);
@@ -95,6 +99,8 @@ void OverlayWindow::renderCard(const View& v) {
             usableW -= pvCol;
         }
         cardW_ = std::min(1000.f * scale_, usableW - 80 * scale_);
+    } else if (mode_ == OverlayMode::Report) {
+        cardW_ = std::min(1500.f * scale_, usableW - 120 * scale_);
     } else {
         cardW_ = 440.f * scale_;
     }
@@ -146,6 +152,11 @@ void OverlayWindow::place() {
     if (mode_ == OverlayMode::Full) {
         SetWindowPos(hwnd_, after, mon_.left, mon_.top, mon_.right - mon_.left, mon_.bottom - mon_.top,
                      SWP_NOACTIVATE);
+    } else if (mode_ == OverlayMode::Report) {
+        int w = (int)std::ceil(cardW_), h = (int)std::ceil(cardH_);
+        int x = mon_.left + ((mon_.right - mon_.left) - w) / 2;
+        int y = std::max<int>(mon_.top, mon_.top + ((mon_.bottom - mon_.top) - h) / 2);
+        SetWindowPos(hwnd_, HWND_NOTOPMOST, x, y, w, h, SWP_NOACTIVATE);
     } else {
         int w = (int)std::ceil(cardW_), h = (int)std::ceil(cardH_);
         int m = (int)(margin_ * scale_);
@@ -207,7 +218,9 @@ void OverlayWindow::show(const View& v, HMONITOR mon, const PreviewParams* pv, d
 
     place();
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-    SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    // relatório: vai para o fundo (atrás do jogo); as outras janelas ficam por cima de tudo
+    SetWindowPos(hwnd_, mode_ == OverlayMode::Report ? HWND_BOTTOM : HWND_TOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     visible_ = true;
     if (hasPv_) {
         int pw = (int)((mon_.right - mon_.left) * pv_.widthPct / 100.f);
@@ -270,7 +283,7 @@ void OverlayWindow::releaseContent() {
     cardV_->SetContent(nullptr);
     barV_->SetContent(nullptr);
     cardSurf_.Reset();
-    setInteractive(false);
+    if (mode_ != OverlayMode::Report) setInteractive(false);
     hiding_ = false;
     g_.dcomp->Commit();
 }
@@ -319,7 +332,8 @@ LRESULT OverlayWindow::handle(UINT m, WPARAM w, LPARAM l) {
             return (interactive_ || (visible_ && !hiding_)) ? HTCLIENT : HTTRANSPARENT;
         case WM_MOUSEACTIVATE: return interactive_ ? MA_ACTIVATE : MA_NOACTIVATE;
         case WM_ERASEBKGND: return 1;
-        case WM_CLOSE:   // Alt+F4 não fecha: a saída é deliberada, pelo menu da bandeja
+        case WM_CLOSE:   // Alt+F4 não fecha o app: a saída é deliberada, pelo menu da bandeja
+            if (mode_ == OverlayMode::Report) { hide(false); return 0; }   // fechar o relatório é seguro
             if (onCloseAttempt) onCloseAttempt();
             return 0;
         case WM_CHAR:

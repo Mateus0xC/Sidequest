@@ -7,7 +7,7 @@
 #include <string>
 
 namespace sq {
-enum class OverlayMode { Full, Corner };
+enum class OverlayMode { Full, Corner, Report };   // Report: janela normal, não fica por cima
 
 struct PreviewParams {
     HWND src = nullptr;

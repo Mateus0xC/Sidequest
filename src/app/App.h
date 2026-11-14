@@ -107,7 +107,8 @@ private:
     CaptureSampler cap_;
 
     Gfx gfx_;
-    std::unique_ptr<OverlayWindow> deathWin_, buyWin_;
+    std::unique_ptr<OverlayWindow> deathWin_, buyWin_, reportWin_;
+    bool reportShown_ = false;
 
     bool dead_ = false, deathPending_ = false, peeking_ = false, exiting_ = false;
     Ctx ctx_ = Ctx::None;
