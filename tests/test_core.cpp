@@ -207,13 +207,13 @@ TEST_CASE("detector: sem HUD desde o começo (lobby/menu) não é morte") {
 TEST_CASE("detector: menu aberto (elementos do menu) não conta como morte") {
     DeathDetector d;
     d.setState(LifeState::Alive);
-    Features pausa{0.0f, 0.0f, 1.0f, 0.0f};         // HUD "sumiu" porque o menu de pausa está aberto
-    Features compra{0.0f, 1.0f, 0.0f, 0.0f};        // menu de compra: linha do cartão do jogador
+    Features pausa{0.0f, 0.0f, 1.0f};         // HUD "sumiu" porque o menu de pausa está aberto
+    Features compra{0.0f, 1.0f, 0.0f};        // menu de compra: linha do cartão do jogador
     for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(pausa).has_value());
     for (int i = 0; i < 20; ++i) CHECK_FALSE(d.observe(compra).has_value());
     CHECK(d.state() == LifeState::Alive);
     // cena muito clara/escura NÃO é menu: só os elementos contam
-    CHECK_FALSE(DeathDetector::menuOpen({0.0f, 0.0f, 0.0f, 0.0f}));
+    CHECK_FALSE(DeathDetector::menuOpen({0.0f, 0.0f, 0.0f}));
     // fechou o menu: continua vivo; depois a morte real (HUD some, sem menu) é detectada
     for (int i = 0; i < 4; ++i) CHECK_FALSE(d.observe({1.0f}).has_value());
     CHECK_FALSE(d.observe({0.0f}).has_value());
@@ -227,25 +227,6 @@ TEST_CASE("detector: menu aberto (elementos do menu) não conta como morte") {
     CHECK_FALSE(d.observe({0.0f}).has_value());
     CHECK_FALSE(d.observe(pausa).has_value());
     CHECK_FALSE(d.observe({0.0f}).has_value());
-}
-
-TEST_CASE("presença: banner da fase de compra exige maioria e duas leituras seguidas") {
-    PresenceDetector p;
-    CHECK_FALSE(p.observe(true).has_value());
-    CHECK_FALSE(p.observe(false).has_value());      // oscilou
-    CHECK_FALSE(p.observe(true).has_value());       // votos T,F,T: ainda sem as duas leituras seguidas
-    auto ev = p.observe(true);                      // T,F,T,T: maioria + duas seguidas
-    REQUIRE(ev.has_value());
-    CHECK(*ev == true);
-    CHECK_FALSE(p.observe(true).has_value());       // já confirmado
-    CHECK_FALSE(p.observe(false).has_value());
-    CHECK_FALSE(p.observe(false).has_value());
-    ev = p.observe(false);
-    REQUIRE(ev.has_value());
-    CHECK(*ev == false);
-    p.observe(true);
-    p.clear();                                      // descartar (menu/sem foco) zera os votos
-    CHECK_FALSE(p.observe(true).has_value());
 }
 
 TEST_CASE("detector: linha parcial abaixo do limiar conta como HUD ausente") {

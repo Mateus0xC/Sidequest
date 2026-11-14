@@ -202,7 +202,7 @@ void App::onSample() {
     const bool menu = DeathDetector::menuOpen(f);
     const bool focused = gameFocused();
     if (n % 40 == 1)
-        logf("amostra hud=%.3f buy=%.2f card=%.2f pausa=%.2f%s%s estado=%d", f.hud, f.buy, f.card, f.pause,
+        logf("amostra hud=%.3f card=%.2f pausa=%.2f%s%s estado=%d", f.hud, f.card, f.pause,
              menu ? " (menu)" : "", focused ? "" : " (sem foco)", (int)det_.state());
 
     // Alt+Tab (outra aplicação em foco): nada é ativado. O que estiver na tela some, sem penalidade.
@@ -214,18 +214,11 @@ void App::onSample() {
             if (dead_ && (ctx_ == Ctx::Ask || ctx_ == Ctx::GapPrompt || ctx_ == Ctx::GapTyping || ctx_ == Ctx::Reveal)) onNotNow();
         }
         det_.clearVotes();
-        buyDet_.clear();
         return;
     }
     gameHadFocus_ = true;
 
     auto ev = det_.observe(f);   // com menu aberto, o próprio detector ignora a leitura
-    if (menu) buyDet_.clear();
-    else if (auto b = buyDet_.observe(f.buy >= 0.8f)) {
-        logf("banner da fase de compra: %s (buy=%.2f)", *b ? "apareceu" : "sumiu", f.buy);
-        if (*b) onBuyPhaseStart();
-        else endBuy(true);
-    }
     if (!ev) return;
     logf("detector: %s (hud=%.3f dead_=%d)", *ev == LifeState::Dead ? "MORTO" : "VIVO", f.hud, (int)dead_);
     if (*ev == LifeState::Dead && !dead_) onDie();
@@ -244,14 +237,6 @@ bool App::gameFocused() const {
     DWORD tp = 0;
     GetWindowThreadProcessId(t, &tp);
     return fp == tp;
-}
-
-// O banner "BUY PHASE" apareceu: novo round (você está vivo) e fase de compra.
-void App::onBuyPhaseStart() {
-    if (ctx_ == Ctx::Report) dismissReport();
-    if (dead_) leaveDeath();
-    ensureSession();
-    startBuy();
 }
 
 void App::onAction(int a) {

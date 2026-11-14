@@ -25,18 +25,6 @@ std::optional<LifeState> DeathDetector::observe(const Features& f) {
     return maj;
 }
 
-std::optional<bool> PresenceDetector::observe(bool present) {
-    votes_.push_back(present);
-    if (votes_.size() > 5) votes_.pop_front();
-    if (votes_.size() < 3) return std::nullopt;
-    int yes = (int)std::count(votes_.begin(), votes_.end(), true);
-    bool maj = yes * 2 > (int)votes_.size();
-    if (votes_[votes_.size() - 1] != maj || votes_[votes_.size() - 2] != maj) return std::nullopt;
-    if (maj == confirmed_) return std::nullopt;
-    confirmed_ = maj;
-    return maj;
-}
-
 void DeathDetector::setState(LifeState s) {
     confirmed_ = s;
     votes_.clear();

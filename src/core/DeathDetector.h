@@ -10,20 +10,8 @@ struct Features {
     float hud = 0;      // presença da ponta da linha do HUD
     float card = 0;     // linha branca do cartão do jogador no menu de compra (y≈120, canto esquerdo)
     float pause = 0;    // botão claro "CLOSE SETTINGS" do menu de pausa/configurações (base da tela)
-    float buy = 0;      // presença dos dois cantos brancos do banner "BUY PHASE" (o menor dos dois lados)
 };
 
-// Presença de um sinal (ex.: banner da fase de compra): maioria dos últimos 5 + duas leituras seguidas iguais.
-class PresenceDetector {
-public:
-    std::optional<bool> observe(bool present);   // devolve o novo estado quando muda
-    bool state() const { return confirmed_; }
-    void clear() { votes_.clear(); }              // ex.: menu aberto, leitura descartada
-
-private:
-    std::deque<bool> votes_;
-    bool confirmed_ = false;
-};
 
 enum class LifeState { Unknown, Alive, Dead };
 
